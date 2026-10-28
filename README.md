@@ -45,7 +45,7 @@ The Windows version talks to Claude Code through HTTP hooks on `127.0.0.1:47321`
 
 ## macOS
 
-Requires macOS 13+ and Xcode Command Line Tools (`xcode-select --install`).
+Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`) and `jq` (`brew install jq`) — the installer edits `~/.claude/settings.json` with it.
 
 ```bash
 git clone https://github.com/pe4enku0/clawd-buddy.git
