@@ -91,7 +91,7 @@ enum L10n {
         case .hooksOn: return ru ? "Подключён к Claude Code" : "Connected to Claude Code"
         case .hooksOff: return ru ? "Хуки не найдены" : "Hooks not found"
         case .hooksHint: return ru ? "Запусти ./install.sh в папке проекта" : "Run ./install.sh in the project folder"
-        case .footer: return ru ? "Неофициальный фан-проект · v1.1" : "Unofficial fan project · v1.1"
+        case .footer: return ru ? "Неофициальный фан-проект" : "Unofficial fan project"
         }
     }
 

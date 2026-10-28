@@ -8,6 +8,8 @@
     L10n.lang = prefs.lang;
     document.documentElement.lang = prefs.lang;
     for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = L10n.ui(el.dataset.i18n);
+    // app.getVersion() is the single source of truth; the phrase table has no version in it.
+    document.querySelector("footer").textContent = `${L10n.ui("footer")} · v${state.version}`;
 
     for (const seg of document.querySelectorAll(".seg")) {
       for (const b of seg.children) b.classList.toggle("on", b.dataset.value === prefs[seg.dataset.pref]);

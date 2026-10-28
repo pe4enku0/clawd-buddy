@@ -165,6 +165,7 @@ function applyLoginItem() {
 
 ipcMain.handle("get-state", () => ({
   prefs: prefs.public, hooks: hooks.status(), platform: process.platform, canLaunchAtLogin: isWin || isMac,
+  version: app.getVersion(),
 }));
 ipcMain.handle("set-pref", (_e, key, value) => { setPref(key, value); return prefs.public; });
 ipcMain.handle("demo", () => runCommand("demo"));

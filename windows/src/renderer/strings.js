@@ -127,7 +127,7 @@
       hooksOn: "Connected to Claude Code", hooksOff: "Not connected",
       hooksHint: "Adds hooks to ~/.claude/settings.json", connect: "Connect", disconnect: "Disconnect",
       hooksError: "Couldn't read settings.json — is it valid JSON?",
-      footer: "Unofficial fan project · v1.1",
+      footer: "Unofficial fan project",
     },
     ru: {
       settings: "Настройки…", language: "Язык", hideWhenSleeping: "Прятаться, когда сплю", sayHi: "Поздороваться",
@@ -144,7 +144,7 @@
       hooksOn: "Подключён к Claude Code", hooksOff: "Не подключён",
       hooksHint: "Добавляет хуки в ~/.claude/settings.json", connect: "Подключить", disconnect: "Отключить",
       hooksError: "Не удалось прочитать settings.json — там точно корректный JSON?",
-      footer: "Неофициальный фан-проект · v1.1",
+      footer: "Неофициальный фан-проект",
     },
   };
 

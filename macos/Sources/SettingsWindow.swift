@@ -49,6 +49,11 @@ private struct SettingsView: View {
     @ObservedObject var prefs: Prefs
     let onDemo: () -> Void
     private var hooksOn: Bool { prefs.hooksInstalled }
+    /// The version comes from Info.plist so a bump is one edit, not three.
+    private var footerText: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        return short.isEmpty ? L10n.ui(.footer) : "\(L10n.ui(.footer)) · v\(short)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -103,7 +108,7 @@ private struct SettingsView: View {
                 }
             }
 
-            Text(L10n.ui(.footer)).font(.caption).foregroundColor(Claude.secondary)
+            Text(footerText).font(.caption).foregroundColor(Claude.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.horizontal, 24)
