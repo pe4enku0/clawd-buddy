@@ -9,6 +9,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test",
     "icons": "node scripts/make-tray-icons.js",
     "dist": "electron-builder --win --publish never"
   },

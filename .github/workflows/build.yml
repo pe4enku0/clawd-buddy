@@ -4,10 +4,26 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  # The hook plumbing edits the user's global settings.json, so it is the one part that must never
+  # regress unnoticed. The tests use only Node built-ins, so they need no install step.
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
   windows:
+    needs: test
     runs-on: windows-latest
     defaults:
       run:
@@ -28,6 +44,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
