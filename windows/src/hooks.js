@@ -18,6 +18,24 @@ const hookPath = () => `/hook/${token}`;
 const hookUrl = () => `http://${HOST}${hookPath()}`;
 
 const truncate = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+// Bodies arrive in TCP-sized chunks, and a chunk boundary can land in the middle of a multi-byte
+// character: appending chunks to a string decodes each one on its own and mangles the pair.
+// Collect the bytes and decode once. Cyrillic is this app's second language, so it is a normal
+// payload, not an edge case.
+function readBody(req, limit = 2_000_000) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) { reject(new Error("hook payload too large")); req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
 // Also matches entries from older versions without a token, so they get cleaned up.
 const isOurs = (h) => h && h.type === "http" && typeof h.url === "string" && h.url.startsWith(HOOK_BASE);
 const hasOurs = (group) => (group.hooks || []).some(isOurs);
@@ -49,7 +67,7 @@ function normalize(j) {
   }
   return {
     event: j.hook_event_name || "", tool, detail,
-    message: typeof j.message === "string" ? j.message : "",
+    message: truncate(typeof j.message === "string" ? j.message : "", 160),
     kind: typeof j.notification_type === "string" ? j.notification_type : "",
   };
 }
@@ -115,4 +133,4 @@ function uninstall() {
   write(s);
 }
 
-module.exports = { PORT, HOST, setToken, hookPath, normalize, status, install, uninstall };
+module.exports = { PORT, HOST, setToken, hookPath, normalize, readBody, status, install, uninstall };
