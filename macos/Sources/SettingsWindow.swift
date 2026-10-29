@@ -99,6 +99,8 @@ private struct SettingsView: View {
                 toggle(L10n.ui(.hideWhenSleeping), L10n.ui(.hideWhenSleepingHint), $prefs.hideWhenSleeping)
                 Divider().overlay(Claude.border)
                 toggle(L10n.ui(.hideInFullscreen), L10n.ui(.hideInFullscreenHint), $prefs.hideInFullscreen)
+                Divider().overlay(Claude.border)
+                toggle(L10n.ui(.notchOutline), L10n.ui(.notchOutlineHint), $prefs.notchOutline)
             }
 
             section(L10n.ui(.claudeCode)) {

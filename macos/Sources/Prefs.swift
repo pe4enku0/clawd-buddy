@@ -31,6 +31,7 @@ final class Prefs: ObservableObject {
     @Published var hideWhenSleeping: Bool { didSet { d.set(hideWhenSleeping, forKey: "hideWhenSleeping") } }
     @Published var mode: BuddyMode { didSet { d.set(mode.rawValue, forKey: "mode") } }
     @Published var hideInFullscreen: Bool { didSet { d.set(hideInFullscreen, forKey: "hideInFullscreen") } }
+    @Published var notchOutline: Bool { didSet { d.set(notchOutline, forKey: "notchOutline") } }
 
     /// Top-right corner of the buddy window, so it stays put when the size changes.
     var anchor: NSPoint? {
@@ -54,6 +55,7 @@ final class Prefs: ObservableObject {
         hideWhenSleeping = d.bool(forKey: "hideWhenSleeping")
         mode = BuddyMode(rawValue: d.string(forKey: "mode") ?? "") ?? .corner
         hideInFullscreen = d.object(forKey: "hideInFullscreen") as? Bool ?? true
+        notchOutline = d.object(forKey: "notchOutline") as? Bool ?? true
         L10n.lang = lang
     }
 

@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.ignoresMouseEvents = true
         panel.contentView = NSView(frame: NSRect(origin: .zero, size: panelSize))
         panel.contentView?.addSubview(view)
-        notch = NotchController(prefs: prefs)
+        notch = NotchController(prefs: prefs, brain: brain, buddy: view)
         applyPrefs()
         placePanel()
         applyMode()
@@ -89,7 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func tick() {
         let local = view.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
-        view.mouse = local
+        // In notch mode the crab drawn in the notch aims the eyes instead.
+        if prefs.mode == .corner { view.mouse = local }
         brain.tick()
 
         let target: CGFloat = (prefs.hideWhenSleeping && view.mood == .sleeping) ? 0 : 1

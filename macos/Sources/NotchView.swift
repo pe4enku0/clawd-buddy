@@ -1,8 +1,26 @@
 import AppKit
 import SwiftUI
 
-/// Everything the notch can show. Sizes follow ISLAND_SPEC.md; later stages fill in the content.
-enum NotchState { case compact, sleeping, hover, approval, done, chatThinking, chatAnswer, fileOver }
+/// Everything the notch can show. Sizes follow ISLAND_SPEC.md; later stages fill in the rest.
+enum NotchState {
+    case compact            // at rest: hidden inside the real cutout
+    case wings              // Claude is busy: crab on the left, activity on the right
+    case sleeping
+    case hover, approval, done, chatThinking, chatAnswer, fileOver
+}
+
+/// What the right wing shows.
+enum NotchActivity { case writing, running, reading, searching, web, thinking, waiting, oops, sleeping }
+
+/// Steady outline along the sides and bottom.
+enum NotchOutline { case none, comet, breathe }
+
+/// One-off outline flash (done, tool error).
+struct NotchFlash: Equatable {
+    let color: Color
+    let start: Date
+    let duration: TimeInterval
+}
 
 enum NotchStyle {
     static let spring = Animation.spring(response: 0.45, dampingFraction: 0.65)
@@ -11,6 +29,7 @@ enum NotchStyle {
     /// Wide enough for the biggest state plus its shoulders and spring overshoot.
     static let canvasWidth: CGFloat = 480
     static let canvasExtraHeight: CGFloat = 300
+    static let outlineWidth: CGFloat = 1.5
 
     static let title = Color.white
     static let secondary = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.6)
@@ -23,12 +42,23 @@ enum NotchStyle {
 }
 
 final class NotchModel: ObservableObject {
+    /// The corner buddy keeps all the animation state; the notch just draws it smaller.
+    let buddy: BuddyView
+
     @Published var state: NotchState = .compact
+    @Published var activity: NotchActivity = .thinking
+    @Published var activitySince = Date()
+    @Published var outline: NotchOutline = .none
+    @Published var flash: NotchFlash?
     /// Real cutout size from the system (or a stand-in on screens without a notch).
     @Published var notchWidth: CGFloat = 185
     @Published var notchHeight: CGFloat = 32
     @Published var title = L10n.buddyName
-    @Published var subtitle = "Claude Code"
+    @Published var subtitle = ""
+    @Published var doneStats = ""
+    @Published var doneAt = Date.distantPast
+
+    init(buddy: BuddyView) { self.buddy = buddy }
 
     var size: CGSize { Self.size(of: state, notchWidth: notchWidth, notchHeight: notchHeight) }
     var bottomRadius: CGFloat { Self.radius(of: state) }
@@ -37,6 +67,7 @@ final class NotchModel: ObservableObject {
         switch s {
         // At rest the island hides inside the real cutout: shoulders included, it is exactly as wide.
         case .compact: return CGSize(width: n - 2 * NotchStyle.shoulder, height: h)
+        case .wings: return CGSize(width: n + 2 * 34, height: h)
         case .sleeping: return CGSize(width: n + 2 * 26, height: h)
         case .hover, .fileOver: return CGSize(width: 360, height: h + 58)
         case .approval: return CGSize(width: 380, height: h + 110)
@@ -48,7 +79,7 @@ final class NotchModel: ObservableObject {
 
     static func radius(of s: NotchState) -> CGFloat {
         switch s {
-        case .compact, .sleeping: return 10
+        case .compact, .wings, .sleeping: return 10
         case .hover, .fileOver, .chatThinking: return 26
         case .approval, .chatAnswer: return 30
         case .done: return 24
@@ -58,11 +89,13 @@ final class NotchModel: ObservableObject {
 
 /// The notch outline: square top glued to the screen edge with small concave shoulders, rounded bottom.
 /// Drawn centred at the top of its rect; width/height exclude the shoulders.
+/// `open` leaves out the top edge, for the outline stroke.
 struct NotchShape: Shape {
     var width: CGFloat
     var height: CGFloat
     var bottomRadius: CGFloat
     var shoulder: CGFloat = NotchStyle.shoulder
+    var open = false
 
     var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
         get { AnimatablePair(AnimatablePair(width, height), bottomRadius) }
@@ -79,7 +112,7 @@ struct NotchShape: Shape {
         p.addArc(tangent1End: CGPoint(x: l, y: bottom), tangent2End: CGPoint(x: l + br, y: bottom), radius: br)
         p.addArc(tangent1End: CGPoint(x: r, y: bottom), tangent2End: CGPoint(x: r, y: bottom - br), radius: br)
         p.addArc(tangent1End: CGPoint(x: r, y: top), tangent2End: CGPoint(x: r + s, y: top), radius: s)
-        p.closeSubpath()
+        if !open { p.closeSubpath() }
         return p
     }
 }
@@ -94,20 +127,40 @@ struct NotchRootView: View {
             shape.fill(Color.black)
             content
                 .frame(width: size.width, height: size.height, alignment: .top)
+            NotchOutlineView(model: model)
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .clipShape(shape)
     }
 
     @ViewBuilder private var content: some View {
-        // The top band at cutout height stays empty: the camera lives there.
+        // Compact content lives only in the wings; expanded content sits below the camera band.
         switch model.state {
+        case .wings, .sleeping:
+            WingsContent(model: model).transition(.notchContent)
         case .hover:
-            HoverContent(model: model)
-                .padding(.top, model.notchHeight)
-                .transition(.notchContent)
+            HoverContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
+        case .done:
+            DoneContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         default:
             EmptyView()
+        }
+    }
+}
+
+private struct WingsContent: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        let wing = (model.size.width - model.notchWidth) / 2
+        HStack(spacing: 0) {
+            CrabSprite(buddy: model.buddy, unit: 1.5)
+                .frame(width: wing, height: model.notchHeight)
+            Spacer(minLength: 0)
+            WingIcon(activity: model.activity, since: model.activitySince)
+                .frame(width: wing, height: model.notchHeight)
         }
     }
 }
@@ -117,25 +170,55 @@ private struct HoverContent: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(nsImage: BuddyView.crabImage(unit: 2))
-                .interpolation(.none)
-                .frame(width: 28, height: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(NotchStyle.title)
-                    .lineLimit(1)
-                Text(model.subtitle)
-                    .font(.system(size: 12.5))
-                    .foregroundColor(NotchStyle.secondary)
-                    .lineLimit(1)
-            }
+            CrabSprite(buddy: model.buddy, unit: 2)
+                .frame(width: 28, height: 26)
+            TitleBlock(title: model.title, subtitle: model.subtitle)
             Spacer(minLength: 8)
             CircleButton(symbol: "bubble.left.fill")
             CircleButton(symbol: "text.viewfinder")
         }
         .padding(.horizontal, 18)
         .frame(maxHeight: .infinity)
+    }
+}
+
+private struct DoneContent: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PopIn(since: model.doneAt) {
+                Image(systemName: "checkmark.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.black, NotchStyle.green)
+                    .font(.system(size: 26))
+            }
+            TitleBlock(title: L10n.ui(.done), subtitle: model.doneStats)
+            Spacer(minLength: 8)
+            CrabSprite(buddy: model.buddy, unit: 2)
+                .frame(width: 28, height: 30)
+                .overlay(Confetti(start: model.doneAt).frame(width: 110, height: 70).allowsHitTesting(false))
+        }
+        .padding(.horizontal, 18)
+        .frame(maxHeight: .infinity)
+    }
+}
+
+private struct TitleBlock: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(NotchStyle.title)
+                .lineLimit(1)
+            Text(subtitle)
+                .font(.system(size: 12.5).monospacedDigit())
+                .foregroundColor(NotchStyle.secondary)
+                .lineLimit(1)
+        }
     }
 }
 

@@ -19,7 +19,8 @@ enum UIText {
     case bubbleStyle, stylePixel, styleClaude, size, sizeSmall, sizeMedium, sizeLarge
     case chattiness, chattinessHint, idleChatter, idleChatterHint, followMouse, followMouseHint, hideWhenSleepingHint
     case hooks, hooksOn, hooksOff, hooksHint, footer
-    case mode, modeCorner, modeNotch, hideInFullscreen, hideInFullscreenHint
+    case mode, modeCorner, modeNotch, hideInFullscreen, hideInFullscreenHint, notchOutline, notchOutlineHint
+    case done
 }
 
 enum L10n {
@@ -98,7 +99,45 @@ enum L10n {
         case .modeNotch: return ru ? "Чёлка" : "Notch"
         case .hideInFullscreen: return ru ? "Прятать в полноэкранных приложениях" : "Hide in full-screen apps"
         case .hideInFullscreenHint: return ru ? "Игры и видео на весь экран не перекрываются" : "Stays out of the way of games and videos"
+        case .notchOutline: return ru ? "Обводка во время работы" : "Glow while working"
+        case .notchOutlineHint: return ru ? "Огонёк бежит по краю чёлки, пока Claude работает" : "A light runs around the notch while Claude works"
+        case .done: return ru ? "Готово" : "Done"
         }
+    }
+
+    /// One-word status under the crab's last line in the notch.
+    static func status(_ m: Mood) -> String {
+        switch m {
+        case .idle: return ru ? "Отдыхает" : "Taking it easy"
+        case .thinking: return ru ? "Думает" : "Thinking"
+        case .writing: return ru ? "Пишет код" : "Writing code"
+        case .reading: return ru ? "Читает" : "Reading"
+        case .searching: return ru ? "Ищет" : "Searching"
+        case .running: return ru ? "Выполняет команду" : "Running a command"
+        case .web: return ru ? "Ищет в интернете" : "On the web"
+        case .agent: return ru ? "Работает с помощником" : "Running a subagent"
+        case .waiting: return ru ? "Ждёт тебя" : "Waiting for you"
+        case .done: return ru ? "Всё готово" : "All done"
+        case .sleeping: return ru ? "Спит" : "Asleep"
+        case .oops: return ru ? "Споткнулся" : "Hit a snag"
+        }
+    }
+
+    /// "12 edits · 3:40" for the notch's Done card.
+    static func turnStats(edits: Int, duration: TimeInterval) -> String {
+        let s = Int(duration.rounded())
+        let time = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+            : String(format: "%d:%02d", s / 60, s % 60)
+        let count: String
+        if ru {
+            let mod10 = edits % 10, mod100 = edits % 100
+            let word = mod10 == 1 && mod100 != 11 ? "правка"
+                : (2...4).contains(mod10) && !(12...14).contains(mod100) ? "правки" : "правок"
+            count = edits == 0 ? "Без правок" : "\(edits) \(word)"
+        } else {
+            count = edits == 0 ? "No edits" : edits == 1 ? "1 edit" : "\(edits) edits"
+        }
+        return "\(count) · \(time)"
     }
 
     private static func list(_ p: Phrase) -> [String] {

@@ -12,18 +12,26 @@ private final class NotchPanel: NSPanel {
 /// The panel is a fixed transparent canvas; SwiftUI animates the shape inside it and
 /// clicks outside the shape fall through to whatever is underneath.
 final class NotchController {
-    let model = NotchModel()
+    let model: NotchModel
     private let prefs: Prefs
+    private let brain: Brain
+    private let buddy: BuddyView
     private var panel: NotchPanel!
     private var timer: Timer?
     private var ticks = 0
     private var outsideSince: Date?
+    private var hovering = false
+    private var lastMood: Mood?
+    private var doneUntil: Date?
     private var hiddenForFullscreen = false
     private var observers: [NSObjectProtocol] = []
     private(set) var isShown = false
 
-    init(prefs: Prefs) {
+    init(prefs: Prefs, brain: Brain, buddy: BuddyView) {
         self.prefs = prefs
+        self.brain = brain
+        self.buddy = buddy
+        model = NotchModel(buddy: buddy)
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -74,14 +82,18 @@ final class NotchController {
         }
         observers = []
         panel.orderOut(nil)
+        hovering = false
+        doneUntil = nil
         model.state = .compact
+        model.outline = .none
+        model.flash = nil
     }
 
     func applyPrefs() {
         var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         if !prefs.hideInFullscreen { behavior.insert(.fullScreenAuxiliary) }
         panel.collectionBehavior = behavior
-        if isShown { checkFullscreen() }
+        if isShown { checkFullscreen(); updateOutline() }
     }
 
     func set(_ state: NotchState) {
@@ -128,6 +140,7 @@ final class NotchController {
     private func tick() {
         ticks += 1
         if ticks % 30 == 0 { checkFullscreen() }
+        syncWithBuddy()
         guard !hiddenForFullscreen else { return }
 
         let m = NSEvent.mouseLocation
@@ -136,23 +149,93 @@ final class NotchController {
         let r = islandRect(for: model.state)
         let inside = NSRect(x: r.minX - 2, y: r.minY - 2, width: r.width + 4, height: r.height + 2).contains(local)
 
-        switch model.state {
-        case .compact, .sleeping:
-            if inside { set(.hover) }
-        case .hover:
-            if inside {
-                outsideSince = nil
-            } else if let since = outsideSince {
-                if Date().timeIntervalSince(since) > 0.25 { outsideSince = nil; set(.compact) }
+        if inside {
+            outsideSince = nil
+            hovering = true
+        } else if hovering {
+            // Short grace period so brushing past the edge doesn't snap it shut.
+            if let since = outsideSince {
+                if Date().timeIntervalSince(since) > 0.25 { outsideSince = nil; hovering = false }
             } else {
                 outsideSince = Date()
             }
-        default:
-            break
         }
+        set(hovering ? .hover : restingState)
+        updateOutline()
 
         let ignore = !inside
         if panel.ignoresMouseEvents != ignore { panel.ignoresMouseEvents = ignore }
+    }
+
+    /// What the island shows when the mouse isn't on it.
+    private var restingState: NotchState {
+        if let d = doneUntil, Date() < d { return .done }
+        switch buddy.mood {
+        case .idle, .done: return .compact
+        case .sleeping: return prefs.hideWhenSleeping ? .compact : .sleeping
+        default: return .wings
+        }
+    }
+
+    /// Follows the corner buddy's mood and lines (Brain drives both modes).
+    private func syncWithBuddy() {
+        let mood = buddy.mood
+        if mood != lastMood {
+            lastMood = mood
+            model.activity = Self.activity(for: mood)
+            model.activitySince = Date()
+            switch mood {
+            case .done:
+                doneUntil = Date().addingTimeInterval(3)
+                model.doneAt = Date()
+                model.doneStats = L10n.turnStats(edits: brain.lastTurn.edits, duration: brain.lastTurn.duration)
+                flash(NotchStyle.green, 1.6)
+            case .oops:
+                flash(NotchStyle.yellow, 1.1)
+            default:
+                break
+            }
+        }
+        let line = buddy.bubbleText
+        if !line.isEmpty, line != model.title { model.title = line }
+        let status = L10n.status(mood)
+        if status != model.subtitle { model.subtitle = status }
+    }
+
+    private static func activity(for mood: Mood) -> NotchActivity {
+        switch mood {
+        case .writing: return .writing
+        case .running, .agent: return .running
+        case .reading: return .reading
+        case .searching: return .searching
+        case .web: return .web
+        case .waiting: return .waiting
+        case .oops: return .oops
+        case .sleeping: return .sleeping
+        case .idle, .thinking, .done: return .thinking
+        }
+    }
+
+    private func flash(_ color: Color, _ duration: TimeInterval) {
+        guard prefs.notchOutline else { return }
+        let f = NotchFlash(color: color, start: Date(), duration: duration)
+        model.flash = f
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            if self?.model.flash == f { self?.model.flash = nil }
+        }
+    }
+
+    /// Comet while Claude works, breathing orange while it waits for you; nothing on hover or at rest.
+    private func updateOutline() {
+        var o = NotchOutline.none
+        if prefs.notchOutline && model.state == .wings {
+            switch buddy.mood {
+            case .writing, .reading, .searching, .running, .web, .agent, .thinking: o = .comet
+            case .waiting: o = .breathe
+            default: break
+            }
+        }
+        if o != model.outline { model.outline = o }
     }
 
     // MARK: Full screen

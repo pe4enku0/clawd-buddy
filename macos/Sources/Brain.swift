@@ -14,6 +14,9 @@ final class Brain {
     private var nextSleepTalkAt = Date().addingTimeInterval(40)
     private var editsThisTurn = 0
     private var activeSince: Date?
+    private var turnStartedAt: Date?
+    /// Edits and wall time of the last finished turn, for the notch's "Done" card.
+    private(set) var lastTurn: (edits: Int, duration: TimeInterval) = (0, 0)
     private var demoTimers: [Timer] = []
 
     private static let minLineGap: TimeInterval = 1.1
@@ -57,17 +60,21 @@ final class Brain {
         case "UserPromptSubmit":
             turnActive = true
             editsThisTurn = 0
+            turnStartedAt = now
             set(.thinking); view.jump(2)
             let hour = Calendar.current.component(.hour, from: now)
             say(L10n.pick(hour < 5 && Double.random(in: 0..<1) < 0.25 ? .lateNight : .thinking))
         case "PreToolUse":
             turnActive = true
+            if turnStartedAt == nil { turnStartedAt = now }
             toolStarted(tool, detail)
         case "PostToolUseFailure":
             set(.oops)
             say(L10n.pick(.oops))
         case "Stop":
             turnActive = false
+            lastTurn = (editsThisTurn, now.timeIntervalSince(turnStartedAt ?? now))
+            turnStartedAt = nil
             set(.done); view.jump(5)
             say(L10n.pick(.done))
             if let since = activeSince, now.timeIntervalSince(since) > 3600 {

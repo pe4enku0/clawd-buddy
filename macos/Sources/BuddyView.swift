@@ -85,7 +85,8 @@ final class BuddyView: NSView {
     private var actTick = 0
     private var particles: [Particle] = []
 
-    private var bubbleText = ""
+    /// The last thing the crab said.
+    private(set) var bubbleText = ""
     private var bubbleChars: [Character] = []
     private var bubbleShown = 0
     private var bubbleShowing = false
@@ -105,6 +106,8 @@ final class BuddyView: NSView {
         NSPoint(x: Self.size.width - CGFloat(Self.gridW) * Self.unit - 14, y: 52)
     }
     private var eyeLevel: CGFloat { crabOrigin.y + 3 * Self.unit }
+    /// Between the eyes; mouse positions are judged from here.
+    var eyeAnchor: NSPoint { NSPoint(x: crabOrigin.x + 7 * Self.unit, y: eyeLevel) }
 
     private var crabRect: NSRect {
         let o = crabOrigin
@@ -207,7 +210,8 @@ final class BuddyView: NSView {
             bubbleAlpha = max(0, bubbleAlpha - 0.12)
         }
 
-        // Sleeping with nothing moving doesn't need 30 fps.
+        // Hidden (notch mode keeps animating it off screen) or sleeping with nothing moving: no need for 30 fps.
+        guard window?.isVisible == true else { return }
         if mood != .sleeping || !particles.isEmpty || bubbleAlpha > 0 || tick % 3 == 0 {
             needsDisplay = true
         }
@@ -414,6 +418,13 @@ final class BuddyView: NSView {
         Self.paint(p, at: at, unit: Self.unit)
         ctx.endTransparencyLayer()
         ctx.restoreGState()
+    }
+
+    /// Draws the crab as it looks right now (mood, act, jump) at another size, e.g. in the notch.
+    /// Flipped context; `origin` is the top-left grid cell.
+    func paintCrab(at origin: NSPoint, unit u: CGFloat) {
+        let p = currentPose()
+        Self.paint(p, at: NSPoint(x: origin.x + CGFloat(p.dx) * u, y: origin.y - (p.lift * u).rounded()), unit: u)
     }
 
     /// Paints a pose into a flipped context with its top-left grid cell at `at`.
