@@ -272,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func playDemo() {
         ensureVisible()
-        brain.demo()
+        if prefs.mode == .notch { notch.playDemo() } else { brain.demo() }
     }
 
     @objc private func resetPosition() {

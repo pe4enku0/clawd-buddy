@@ -60,6 +60,10 @@ final class NotchModel: ObservableObject {
     @Published var approvalTitle = ""
     @Published var approvalDetail = ""
     @Published var approvalSince = Date.distantPast
+    /// Lines the detail takes (1...CommandLabel.maxLines); false when it doesn't fit, and then
+    /// Allow is off: you only approve what you can read in full.
+    @Published var approvalLines = 1
+    @Published var approvalFits = true
     /// Buttons on the approval card; the controller decides what a click may do.
     var onApprovalAnswer: ((ApprovalDecision) -> Void)?
 
@@ -104,6 +108,11 @@ final class NotchModel: ObservableObject {
     init(buddy: BuddyView) { self.buddy = buddy }
 
     var size: CGSize {
+        if state == .approval {
+            // Paddings, title row, gaps and buttons, plus the detail lines and the "too long" note.
+            let note = approvalFits ? 0 : 8 + CommandLabel.lineHeight
+            return CGSize(width: 380, height: notchHeight + 104 + CGFloat(approvalLines) * CommandLabel.lineHeight + note)
+        }
         if state == .chatAnswer {
             return CGSize(width: 400, height: notchHeight + min(chatAnswerMaxExtra, chatAnswerChrome + max(chatAnswerHeight, 20)))
         }
@@ -267,40 +276,45 @@ private struct ApprovalContent: View {
     @ObservedObject var model: NotchModel
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 CrabSprite(buddy: model.buddy, unit: 2)
                     .frame(width: 28, height: 26)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.approvalTitle)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(NotchStyle.title)
-                        .lineLimit(1)
-                    Text(model.approvalDetail)
-                        .font(.system(size: 12.5, design: .monospaced))
-                        .foregroundColor(NotchStyle.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Text(model.approvalTitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(NotchStyle.title)
+                    .lineLimit(1)
                 Spacer(minLength: 8)
                 CountdownRing(since: model.approvalSince, duration: ApprovalChannel.cardSeconds) {
                     model.onApprovalAnswer?(.terminal)
                 }
                 .help(L10n.ui(.answerInTerminal))
             }
+            .frame(height: 28)
+            CommandLabel(text: model.approvalDetail)
+                .frame(width: CommandLabel.width,
+                       height: CGFloat(min(model.approvalLines, CommandLabel.maxLines)) * CommandLabel.lineHeight,
+                       alignment: .topLeading)
+            if !model.approvalFits {
+                Label(L10n.ui(.approvalTooLong), systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(NotchStyle.yellow)
+                    .frame(height: CommandLabel.lineHeight)
+            }
             HStack(spacing: 10) {
                 CapsuleButton(title: L10n.ui(.deny), fill: NotchStyle.buttonRaised, text: .white) {
                     model.onApprovalAnswer?(.deny)
                 }
-                CapsuleButton(title: L10n.ui(.allow), fill: NotchStyle.orange, text: .black) {
+                CapsuleButton(title: L10n.ui(.allow), fill: NotchStyle.orange, text: .black, enabled: model.approvalFits) {
                     model.onApprovalAnswer?(.allow)
                 }
             }
+            .padding(.top, 4)
         }
         .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 16)
-        .frame(maxHeight: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

@@ -96,6 +96,14 @@ final class Brain {
         }
     }
 
+    /// Straight to sleep, for the notch demo.
+    func sleepNow() {
+        view.hideBubble()
+        bubbleHideAt = nil
+        pending = nil
+        set(.sleeping)
+    }
+
     /// The user allowed or denied from the notch: stop waving and get back to work.
     func permissionAnswered() {
         view.hideBubble()

@@ -71,21 +71,60 @@ final class NotchCrabView: NSView {
     }
 }
 
+/// The thing being approved, in AppKit so the card can measure exactly what will be shown.
+struct CommandLabel: NSViewRepresentable {
+    let text: String
+    static let width: CGFloat = 344
+    static let maxLines = 3
+
+    static func makeField(maxLines: Int = maxLines) -> NSTextField {
+        let f = NSTextField(wrappingLabelWithString: "")
+        f.font = .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        f.textColor = NSColor(srgbRed: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: 0.6)
+        f.lineBreakMode = .byCharWrapping
+        f.maximumNumberOfLines = maxLines
+        f.cell?.truncatesLastVisibleLine = true
+        f.preferredMaxLayoutWidth = width
+        f.isSelectable = false
+        f.drawsBackground = false
+        return f
+    }
+
+    static var lineHeight: CGFloat {
+        let f = makeField(maxLines: 1)
+        f.stringValue = "x"
+        return f.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 1000)).height ?? 15
+    }
+
+    /// Lines `text` needs at the card's width, with no limit.
+    static func lineCount(_ text: String) -> Int {
+        let f = makeField(maxLines: 0)
+        f.stringValue = text
+        let h = f.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 100_000)).height ?? 0
+        return max(1, Int((h / lineHeight).rounded(.up)))
+    }
+
+    func makeNSView(context: Context) -> NSTextField { Self.makeField() }
+    func updateNSView(_ f: NSTextField, context: Context) { f.stringValue = text }
+}
+
 /// Wide pill button: dark for secondary actions, orange with black text for the main one.
 struct CapsuleButton: View {
     let title: String
     let fill: Color
     let text: Color
+    var enabled = true
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button(action: { if enabled { action() } }) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(text)
                 .frame(maxWidth: .infinity, minHeight: 34)
                 .background(Capsule().fill(fill))
                 .contentShape(Capsule())
+                .opacity(enabled ? 1 : 0.35)
         }
         .buttonStyle(.plain)
     }

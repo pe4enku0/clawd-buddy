@@ -20,7 +20,7 @@ enum UIText {
     case chattiness, chattinessHint, idleChatter, idleChatterHint, followMouse, followMouseHint, hideWhenSleepingHint
     case hooks, hooksOn, hooksOff, hooksHint, footer
     case mode, modeCorner, modeNotch, hideInFullscreen, hideInFullscreenHint, notchOutline, notchOutlineHint
-    case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal
+    case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal, approvalTooLong
     case chatPlaceholder, chatMore, chatThinking, copy, copied, chatHotkey, chatHotkeyHint, pressKeys
     case fileDropTitle, fileUnsupported, fileUnsupportedLong, fileUnreadable
     case screenQuestion, screenLooking, screenHint, screenHintSub, screenNoImage, screenAttach
@@ -111,6 +111,7 @@ enum L10n {
         case .allow: return ru ? "Разрешить" : "Allow"
         case .deny: return ru ? "Отклонить" : "Deny"
         case .answerInTerminal: return ru ? "Отвечу в терминале" : "I'll answer in the terminal"
+        case .approvalTooLong: return ru ? "Не влезает целиком — посмотри и ответь в терминале" : "Too long to show here, check it in the terminal"
         case .chatPlaceholder: return ru ? "Спроси что-нибудь…" : "Ask anything…"
         case .chatMore: return ru ? "Спросить ещё…" : "Ask a follow-up…"
         case .chatThinking: return ru ? "Думаю…" : "Thinking…"

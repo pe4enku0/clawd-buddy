@@ -76,7 +76,11 @@ final class ClaudeRunner {
         p.executableURL = claude
         p.currentDirectoryURL = dir
         p.arguments = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                       "--tools", "Read", "--allowedTools", "Read", "--permission-mode", "dontAsk",
+                       // Read is the only tool, limited to this throwaway folder: a file or screenshot with
+                       // hidden instructions can't make it read ~/.ssh. User settings (allow rules, hooks)
+                       // stay out; managed settings still apply.
+                       "--tools", "Read", "--allowedTools", "Read(./**)", "--permission-mode", "dontAsk",
+                       "--setting-sources", "project",
                        "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
                        "--model", "sonnet", "--system-prompt", Self.systemPrompt]
         var env = ProcessInfo.processInfo.environment

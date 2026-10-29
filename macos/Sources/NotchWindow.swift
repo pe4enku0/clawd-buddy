@@ -67,6 +67,9 @@ final class NotchController {
     private var screenshot: URL?
     private var clipWatch: Timer?
     private var hiddenForFullscreen = false
+    /// Set while the demo runs: the state it is showing right now.
+    private var demoState: NotchState?
+    private var demoTimers: [Timer] = []
     private var observers: [NSObjectProtocol] = []
     private(set) var isShown = false
 
@@ -134,6 +137,7 @@ final class NotchController {
             NotificationCenter.default.removeObserver($0)
         }
         observers = []
+        stopDemo()
         dismissApproval()
         closeChat()
         panel.orderOut(nil)
@@ -162,9 +166,14 @@ final class NotchController {
     /// "terminal") when it can't be shown right now.
     func presentApproval(_ ticket: ApprovalTicket) -> Bool {
         guard isShown, !hiddenForFullscreen, approval == nil else { return false }
+        stopDemo()
         approval = ticket
-        model.approvalTitle = L10n.approvalTitle(tool: ticket.request.tool)
-        model.approvalDetail = ticket.request.detail
+        model.approvalTitle = ApprovalChannel.visible(L10n.approvalTitle(tool: ticket.request.tool))
+        let detail = ApprovalChannel.visible(ticket.request.detail)
+        let lines = CommandLabel.lineCount(detail)
+        model.approvalDetail = detail
+        model.approvalFits = lines <= CommandLabel.maxLines
+        model.approvalLines = min(lines, CommandLabel.maxLines)
         model.approvalSince = Date()
         // Answered in the terminal / editor, or Claude Code gave up on the hook.
         ticket.onHangup = { [weak self] in self?.closeApproval() }
@@ -187,6 +196,8 @@ final class NotchController {
         guard let ticket = approval else { return }
         // A card that just dropped under a moving pointer shouldn't catch a stray click.
         if decision != .terminal && Date().timeIntervalSince(model.approvalSince) < 0.7 { return }
+        // Never allow what didn't fit on the card.
+        if decision == .allow && !model.approvalFits { return }
         ticket.answer(decision)
         closeApproval()
         if decision != .terminal { brain.permissionAnswered() }
@@ -205,6 +216,7 @@ final class NotchController {
     /// Drops the chat card and puts the cursor in its field. Each opening is a fresh conversation.
     func openChat() {
         guard isShown, !hiddenForFullscreen, !chatOpen else { return }
+        stopDemo()
         chatOpen = true
         chatHistory = []
         chatPhase = .input
@@ -425,6 +437,77 @@ final class NotchController {
         return "Earlier in this chat:\n\n\(past)\n\n---\nThe user's new message:\n\(question)"
     }
 
+    // MARK: Demo
+
+    /// Every notch state in turn (Settings / menu "Play demo"). Real events still drive the crab,
+    /// so the wings, outline, Done card and sleep look exactly as they do for real.
+    func playDemo() {
+        guard isShown, !hiddenForFullscreen else { return }
+        closeChat()
+        dismissApproval()
+        stopDemo()
+        let ru = L10n.lang == .ru
+        let steps: [(TimeInterval, () -> Void)] = [
+            (1.6, { self.brain.handle(["event": "SessionStart"]); self.demoState = .compact }),
+            (2.4, { self.demoState = .hover }),
+            (2.6, { self.brain.handle(["event": "PreToolUse", "tool": "Edit", "detail": "App.swift"]); self.demoState = .wings }),
+            (2.6, { self.brain.handle(["event": "PreToolUse", "tool": "Bash", "detail": "npm test"]); self.demoState = .wings }),
+            (3.2, {
+                self.model.approvalTitle = L10n.approvalTitle(tool: "Bash")
+                self.model.approvalDetail = "rm -rf node_modules && npm install"
+                self.model.approvalLines = 1
+                self.model.approvalFits = true
+                self.model.approvalSince = Date()
+                self.brain.handle(["event": "Notification", "kind": "permission_prompt"])
+                self.demoState = .approval
+            }),
+            (2.2, { self.brain.handle(["event": "PostToolUseFailure", "tool": "Bash"]); self.demoState = .wings }),
+            (3.0, { self.brain.handle(["event": "Stop"]); self.demoState = .done }),
+            (2.4, {
+                self.model.chatQuestion = ru ? "Как отменить последний коммит?" : "How do I undo my last commit?"
+                self.model.chatLookingAtScreen = false
+                self.model.chatAwaitingClip = false
+                self.demoState = .chatThinking
+            }),
+            (4.0, {
+                self.model.chatAnswer = ru
+                    ? "Если коммит ещё не отправлен, выполни `git reset --soft HEAD~1`: коммит исчезнет, а изменения останутся в файлах."
+                    : "If it isn't pushed yet, run `git reset --soft HEAD~1`: the commit goes away and your changes stay in the files."
+                self.model.chatError = false
+                self.model.chatNote = ""
+                self.demoState = .chatAnswer
+            }),
+            (2.6, { self.model.dragLabel = "README.md"; self.model.dragSupported = true; self.demoState = .fileOver }),
+            (3.0, { self.brain.sleepNow(); self.demoState = .sleeping }),
+        ]
+        var at: TimeInterval = 0
+        for (duration, step) in steps {
+            demoAfter(at, step)
+            at += duration
+        }
+        demoAfter(at) { self.stopDemo() }
+    }
+
+    private func demoAfter(_ seconds: TimeInterval, _ block: @escaping () -> Void) {
+        let t = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
+            if self != nil { block() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        demoTimers.append(t)
+    }
+
+    private func stopDemo() {
+        demoTimers.forEach { $0.invalidate() }
+        demoTimers = []
+        guard demoState != nil else { return }
+        demoState = nil
+        if !chatOpen {
+            model.chatQuestion = ""
+            model.chatAnswer = ""
+            model.chatAnswerHeight = 0
+        }
+    }
+
     // MARK: Geometry
 
     /// The built-in display with the cutout if there is one, otherwise the menu bar screen.
@@ -487,7 +570,7 @@ final class NotchController {
             }
         }
         // Most urgent first: a permission request, then the chat, then hover.
-        set(approval != nil ? .approval : dragHere ? .fileOver : chatOpen ? chatState : hovering ? .hover : restingState)
+        set(approval != nil ? .approval : dragHere ? .fileOver : demoState ?? (chatOpen ? chatState : hovering ? .hover : restingState))
         updateOutline()
 
         let ignore = !inside && !dragHere

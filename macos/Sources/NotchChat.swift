@@ -266,6 +266,8 @@ struct AnswerText: View {
     static func inline(_ s: String) -> AttributedString {
         let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         guard var a = try? AttributedString(markdown: s, options: opts) else { return AttributedString(s) }
+        // Model text can carry links planted in a file or on screen: show them as plain text.
+        for run in a.runs where run.link != nil { a[run.range].link = nil }
         for run in a.runs where run.inlinePresentationIntent?.contains(.code) == true {
             a[run.range].font = .system(size: 13, design: .monospaced)
             a[run.range].foregroundColor = NotchStyle.orange

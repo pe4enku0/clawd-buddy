@@ -29,6 +29,32 @@ enum ApprovalChannel {
         return URL(fileURLWithPath: String(cString: buf)).resolvingSymlinksInPath().path
     }
 
+    /// The peer's executable by audit token, which (unlike a PID) can't be recycled under us.
+    static func peerExecutablePath(_ fd: Int32) -> String? {
+        var token = audit_token_t()
+        var len = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &len) == 0 else { return nil }
+        var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath_audittoken(&token, &buf, UInt32(buf.count)) > 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buf)).resolvingSymlinksInPath().path
+    }
+
+    /// Makes invisible tricks visible: control characters, zero-width and bidi-override marks
+    /// (which can make "rm -rf ~" read like something harmless). Newlines stay.
+    static func visible(_ s: String) -> String {
+        var out = ""
+        for u in s.unicodeScalars {
+            switch u.value {
+            case 0x0A: out.append("\n")
+            case 0x09: out.append("  ")
+            case 0x00..<0x20, 0x7F..<0xA0: out += String(format: "\\x%02X", u.value)
+            case 0x200B...0x200F, 0x202A...0x202E, 0x2060...0x2069, 0xFEFF: out += String(format: "<U+%04X>", u.value)
+            default: out.unicodeScalars.append(u)
+            }
+        }
+        return out
+    }
+
     static func makeAddress() -> sockaddr_un? {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -91,10 +117,7 @@ enum ApprovalChannel {
         guard connect(fd, &addr) else { return .terminal }
 
         // Only our own app may answer: the peer must be this same executable.
-        var pid: pid_t = 0
-        var len = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0,
-              let peer = executablePath(of: pid), let me = executablePath(of: getpid()), peer == me
+        guard let peer = peerExecutablePath(fd), let me = executablePath(of: getpid()), peer == me
         else { return .terminal }
 
         writeMessage(fd, ["token": token, "tool": request.tool, "detail": request.detail])
@@ -121,6 +144,7 @@ final class ApprovalTicket {
         self.token = token
         // The hook never writes again, so "readable" means it hung up.
         let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
+        src.setCancelHandler { close(fd) }
         src.setEventHandler { [weak self] in
             guard let self, !self.done else { return }
             self.finish()
@@ -138,11 +162,11 @@ final class ApprovalTicket {
         finish()
     }
 
+    /// The cancel handler closes the socket, so the source never watches a recycled descriptor.
     private func finish() {
         done = true
         hangupSource?.cancel()
         hangupSource = nil
-        close(fd)
     }
 }
 

@@ -55,18 +55,24 @@ enum HookBridge {
         }
     }
 
-    /// Longer than `detail`: the card has room, and you should see what you're allowing.
+    /// Everything you'd be allowing, untrimmed (the app decides what fits). A short summary here
+    /// could hide the dangerous part, e.g. the second line of a command.
     private static func approvalDetail(tool: String, input: [String: Any]) -> String {
+        func str(_ k: String) -> String? { input[k] as? String }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        func path(_ p: String) -> String { p.hasPrefix(home + "/") ? "~" + p.dropFirst(home.count) : p }
+        let text: String
         switch tool {
-        case "Bash", "PowerShell":
-            let lines = ((input["command"] as? String) ?? "").split(separator: "\n")
-            let first = (lines.first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces)
-            return truncate(lines.count > 1 ? first + " …" : first, 300)
-        case "WebFetch":
-            return truncate((input["url"] as? String) ?? "", 300)
+        case "Bash", "PowerShell": text = str("command") ?? ""
+        case "Edit", "MultiEdit", "Write", "Read": text = path(str("file_path") ?? "")
+        case "NotebookEdit": text = path(str("notebook_path") ?? "")
+        case "WebFetch": text = str("url") ?? ""
+        case "WebSearch": text = str("query") ?? ""
         default:
-            return detail(tool: tool, input: input)
+            let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .withoutEscapingSlashes])
+            text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         }
+        return String(text.prefix(4000))
     }
 
     static func normalize(_ j: [String: Any]) -> [String: String] {
