@@ -71,6 +71,7 @@ final class NotchController {
     private var demoState: NotchState?
     private var demoTimers: [Timer] = []
     private let timers = Timers()
+    private var stopwatch = Stopwatch.load() { didSet { Stopwatch.save(stopwatch); model.stopwatch = stopwatch } }
     /// The timer whose alarm card is up, and any that went off while it was.
     private var alarm: ClawdTimer?
     private var alarmQueue: [ClawdTimer] = []
@@ -109,6 +110,8 @@ final class NotchController {
             self?.syncTimers()
         }
         model.timers = timers.items
+        model.stopwatch = stopwatch
+        model.onStopwatch = { [weak self] in _ = self?.stopwatchCommand($0) }
         applyPrefs()
     }
 
@@ -297,6 +300,10 @@ final class NotchController {
         model.chatError = false
         model.chatLookingAtScreen = wantsScreen
         chatPhase = .thinking
+        if custom == nil, let command = StopwatchParser.parse(question) {
+            reply(stopwatchCommand(command))
+            return
+        }
         if custom == nil, let command = TimerParser.parse(question) {
             handleTimer(command, question: question)
             return
@@ -346,6 +353,32 @@ final class NotchController {
         timers.add(fireAt: at, label: label, duration: duration)
         syncTimers()
         reply(L10n.timerSet(label: label, duration: duration, at: at))
+    }
+
+    /// Runs a stopwatch command (chat or hover buttons) and says what happened.
+    private func stopwatchCommand(_ command: StopwatchCommand) -> String {
+        let now = Date()
+        func time() -> String { TimerFormat.elapsed(stopwatch?.elapsed(now) ?? 0) }
+        switch command {
+        case .start where stopwatch == nil:
+            stopwatch = Stopwatch(startedAt: now)
+            return L10n.ui(.stopwatchStarted)
+        case .start where stopwatch?.isRunning == false, .resume where stopwatch?.isRunning == false:
+            stopwatch?.startedAt = now
+            return L10n.stopwatchReply(.resume, elapsed: time())
+        case .pause where stopwatch?.isRunning == true:
+            let text = L10n.stopwatchReply(.pause, elapsed: time())
+            stopwatch = Stopwatch(accumulated: stopwatch?.elapsed(now) ?? 0, startedAt: nil)
+            return text
+        case .reset where stopwatch != nil:
+            let text = L10n.stopwatchReply(.reset, elapsed: time())
+            stopwatch = nil
+            return text
+        case .start, .show, .pause, .resume:
+            return stopwatch == nil ? L10n.ui(.stopwatchNotRunning) : L10n.stopwatchReply(.show, elapsed: time())
+        case .reset:
+            return L10n.ui(.stopwatchNotRunning)
+        }
     }
 
     /// An answer we wrote ourselves, shown like Claude's.
@@ -697,13 +730,16 @@ final class NotchController {
         if panel.ignoresMouseEvents != ignore { panel.ignoresMouseEvents = ignore }
     }
 
+    /// A timer or a running stopwatch to show in the wing.
+    private var clockRunning: Bool { !timers.items.isEmpty || stopwatch?.isRunning == true }
+
     /// What the island shows when the mouse isn't on it.
     private var restingState: NotchState {
         if let d = doneUntil, Date() < d { return .done }
         // Claude's work comes first; with nothing going on, a running timer shows its countdown.
         switch buddy.mood {
-        case .idle, .done: return timers.items.isEmpty ? .compact : .timerWings
-        case .sleeping: return !timers.items.isEmpty ? .timerWings : prefs.hideWhenSleeping ? .compact : .sleeping
+        case .idle, .done: return clockRunning ? .timerWings : .compact
+        case .sleeping: return clockRunning ? .timerWings : prefs.hideWhenSleeping ? .compact : .sleeping
         default: return .wings
         }
     }

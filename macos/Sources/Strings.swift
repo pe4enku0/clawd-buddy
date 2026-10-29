@@ -23,7 +23,7 @@ enum UIText {
     case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal, approvalTooLong
     case chatPlaceholder, chatMore, chatThinking, copy, copied, chatHotkey, chatHotkeyHint, pressKeys
     case fileDropTitle, fileUnsupported, fileUnsupportedLong, fileUnreadable
-    case timeIsUp, snooze, noTimers, timerSound, timerSoundHint
+    case timeIsUp, snooze, noTimers, timerSound, timerSoundHint, stopwatch, stopwatchNotRunning, stopwatchStarted
     case screenQuestion, screenLooking, screenHint, screenHintSub, screenNoImage, screenAttach
     case screenHotkey, screenHotkeyHint
 }
@@ -121,6 +121,9 @@ enum L10n {
         case .chatHotkey: return ru ? "Хоткей чата" : "Chat shortcut"
         case .chatHotkeyHint: return ru ? "Открывает чат в чёлке. Нажми и введи новое сочетание" : "Opens chat in the notch. Click, then press new keys"
         case .pressKeys: return ru ? "Нажми сочетание…" : "Press keys…"
+        case .stopwatch: return ru ? "Секундомер" : "Stopwatch"
+        case .stopwatchNotRunning: return ru ? "Секундомер не запущен." : "The stopwatch isn't running."
+        case .stopwatchStarted: return ru ? "⏱ Секундомер запущен." : "⏱ Stopwatch started."
         case .timeIsUp: return ru ? "Время вышло!" : "Time's up!"
         case .snooze: return ru ? "+5 мин" : "+5 min"
         case .noTimers: return ru ? "Сейчас таймеров нет." : "No timers running."
@@ -168,6 +171,15 @@ enum L10n {
         if !t.label.isEmpty { return t.label }
         guard let d = t.duration else { return ru ? "Будильник" : "Alarm" }
         return ru ? "Таймер на \(TimerFormat.length(d))" : "\(TimerFormat.length(d)) timer"
+    }
+
+    static func stopwatchReply(_ command: StopwatchCommand, elapsed: String) -> String {
+        switch command {
+        case .start, .show: return ru ? "⏱ Прошло \(elapsed)." : "⏱ \(elapsed) so far."
+        case .pause: return ru ? "⏸ Секундомер на паузе: \(elapsed)." : "⏸ Stopwatch paused at \(elapsed)."
+        case .resume: return ru ? "▶️ Продолжаю с \(elapsed)." : "▶️ Resuming from \(elapsed)."
+        case .reset: return ru ? "Сбросил секундомер (было \(elapsed))." : "Stopwatch reset (it was at \(elapsed))."
+        }
     }
 
     static func timerCancelled(_ names: [String]) -> String {

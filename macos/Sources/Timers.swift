@@ -231,10 +231,67 @@ enum TimerFormat {
         return parts.isEmpty ? (ru ? "0 сек" : "0 s") : parts.joined(separator: " ")
     }
 
+    /// Stopwatch time: "1:23", "1:02:03", with tenths when asked ("1:23.4").
+    static func elapsed(_ t: TimeInterval, tenths: Bool = false) -> String {
+        let s = Int(max(0, t))
+        let base = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+        return tenths ? base + ".\(Int(max(0, t) * 10) % 10)" : base
+    }
+
     static func clock(_ d: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = Calendar.current.isDateInToday(d) ? "HH:mm" : (L10n.lang == .ru ? "d MMM, HH:mm" : "MMM d, HH:mm")
         f.locale = Locale(identifier: L10n.lang == .ru ? "ru_RU" : "en_US")
         return f.string(from: d)
+    }
+}
+
+/// One stopwatch. Persisted, so a restart doesn't lose the time.
+struct Stopwatch: Codable, Equatable {
+    /// Time from earlier runs, before the last pause.
+    var accumulated: TimeInterval = 0
+    /// Set while running.
+    var startedAt: Date?
+
+    var isRunning: Bool { startedAt != nil }
+
+    func elapsed(_ now: Date = Date()) -> TimeInterval {
+        accumulated + (startedAt.map { now.timeIntervalSince($0) } ?? 0)
+    }
+
+    private static let key = "stopwatch"
+
+    static func load() -> Stopwatch? {
+        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(Stopwatch.self, from: $0) }
+    }
+
+    static func save(_ s: Stopwatch?) {
+        if let s, let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: key) }
+        else { UserDefaults.standard.removeObject(forKey: key) }
+    }
+}
+
+enum StopwatchCommand: Equatable { case start, pause, resume, reset, show }
+
+/// Stopwatch commands, RU and EN. Like timers, only commands count, not questions about stopwatches.
+enum StopwatchParser {
+    private static let lead = #"^(?:(?:clawd|клод|краб)[,!]?\s+)?(?:пожалуйста\s+|please\s+)?"#
+    private static let noun = #"(?:секундомер\w*|stopwatch)"#
+    private static let rules: [(StopwatchCommand, String)] = [
+        (.pause, #"(?:останови|стоп|пауза|поставь\s+на\s+паузу|приостанови|pause|stop)\s+(?:the\s+)?"# + noun),
+        (.resume, #"(?:продолжи|возобнови|сними\s+с\s+паузы|resume|continue|unpause)\s+(?:the\s+)?"# + noun),
+        (.reset, #"(?:сбрось|обнули|удали|убери|reset|clear|cancel)\s+(?:the\s+)?"# + noun),
+        (.show, #"(?:сколько\s+прошло|сколько\s+на\s+секундомере|how\s+long\s+has\s+it\s+been|stopwatch\s+time)"#),
+        (.start, #"(?:(?:запусти|включи|поставь|начни|заведи|start|run)\s+(?:a\s+|the\s+)?"# + noun + #"|"# + noun
+            + #"|засеки(?:\s+время)?|time\s+me|start\s+timing)$"#),
+    ]
+
+    static func parse(_ text: String) -> StopwatchCommand? {
+        let s = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        for (command, body) in rules
+        where (try? NSRegularExpression(pattern: lead + body))?.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil {
+            return command
+        }
+        return nil
     }
 }

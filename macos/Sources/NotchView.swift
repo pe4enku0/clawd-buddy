@@ -93,6 +93,8 @@ final class NotchModel: ObservableObject {
     @Published var chatNote = ""
     /// Running timers, soonest first: the wing countdown and the hover list.
     @Published var timers: [ClawdTimer] = []
+    @Published var stopwatch: Stopwatch?
+    var onStopwatch: ((StopwatchCommand) -> Void)?
     @Published var alarmTitle = ""
     @Published var alarmSubtitle = ""
     @Published var alarmSince = Date.distantPast
@@ -121,8 +123,9 @@ final class NotchModel: ObservableObject {
     init(buddy: BuddyView) { self.buddy = buddy }
 
     var size: CGSize {
-        if state == .hover && !timers.isEmpty {
-            return CGSize(width: 360, height: notchHeight + 58 + CGFloat(min(timers.count, 3)) * 30 + 10)
+        if state == .hover && (!timers.isEmpty || stopwatch != nil) {
+            let rows = min(timers.count, 3) + (stopwatch == nil ? 0 : 1)
+            return CGSize(width: 360, height: notchHeight + 58 + CGFloat(rows) * 30 + 10)
         }
         if state == .approval {
             // Paddings, title row, gaps and buttons, plus the detail lines and the "too long" note.
@@ -257,6 +260,13 @@ private struct WingsContent: View {
                             .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
                             .foregroundColor(NotchStyle.orange)
                     }
+                } else if model.state == .timerWings, let sw = model.stopwatch {
+                    // Counting up in white, so it never reads as a countdown.
+                    TimelineView(.periodic(from: Date(), by: 1)) { tl in
+                        Text(TimerFormat.elapsed(sw.elapsed(tl.date)))
+                            .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                            .foregroundColor(.white)
+                    }
                 } else {
                     WingIcon(activity: model.activity, since: model.activitySince)
                 }
@@ -282,6 +292,9 @@ private struct HoverContent: View {
             .frame(height: 58)
             ForEach(model.timers.prefix(3)) { t in
                 TimerRow(timer: t) { model.onCancelTimer?(t.id) }
+            }
+            if let sw = model.stopwatch {
+                StopwatchRow(stopwatch: sw) { model.onStopwatch?($0) }
             }
             Spacer(minLength: 0)
         }
@@ -402,6 +415,42 @@ private struct TimerRow: View {
                     .foregroundColor(NotchStyle.secondary)
             }
             Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(NotchStyle.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(height: 30)
+    }
+}
+
+/// The stopwatch in the hover card: time with tenths, pause / resume, reset.
+private struct StopwatchRow: View {
+    let stopwatch: Stopwatch
+    let command: (StopwatchCommand) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "stopwatch")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
+            Text(L10n.ui(.stopwatch))
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+            Spacer(minLength: 6)
+            TimelineView(.periodic(from: Date(), by: 0.1)) { tl in
+                Text(TimerFormat.elapsed(stopwatch.elapsed(tl.date), tenths: true))
+                    .font(.system(size: 12.5).monospacedDigit())
+                    .foregroundColor(stopwatch.isRunning ? .white : NotchStyle.secondary)
+            }
+            Button { command(stopwatch.isRunning ? .pause : .resume) } label: {
+                Image(systemName: stopwatch.isRunning ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(NotchStyle.secondary)
+            }
+            .buttonStyle(.plain)
+            Button { command(.reset) } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundColor(NotchStyle.secondary)
