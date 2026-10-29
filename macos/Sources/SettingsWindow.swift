@@ -60,6 +60,11 @@ private struct SettingsView: View {
             header
 
             section(L10n.ui(.appearance)) {
+                row(L10n.ui(.mode)) {
+                    Segmented(selection: $prefs.mode,
+                              options: [(.corner, L10n.ui(.modeCorner)), (.notch, L10n.ui(.modeNotch))])
+                }
+                Divider().overlay(Claude.border)
                 row(L10n.ui(.language)) {
                     Segmented(selection: $prefs.lang, options: [(.en, "English"), (.ru, "Русский")])
                 }
@@ -92,6 +97,8 @@ private struct SettingsView: View {
                 toggle(L10n.ui(.followMouse), L10n.ui(.followMouseHint), $prefs.followMouse)
                 Divider().overlay(Claude.border)
                 toggle(L10n.ui(.hideWhenSleeping), L10n.ui(.hideWhenSleepingHint), $prefs.hideWhenSleeping)
+                Divider().overlay(Claude.border)
+                toggle(L10n.ui(.hideInFullscreen), L10n.ui(.hideInFullscreenHint), $prefs.hideInFullscreen)
             }
 
             section(L10n.ui(.claudeCode)) {

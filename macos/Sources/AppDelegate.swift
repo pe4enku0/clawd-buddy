@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let prefs = Prefs.shared
     private var panel: BuddyPanel!
     private var view: BuddyView!
+    private var notch: NotchController!
     private var brain: Brain!
     private var statusItem: NSStatusItem!
     private var settings: SettingsWindowController?
@@ -46,9 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.ignoresMouseEvents = true
         panel.contentView = NSView(frame: NSRect(origin: .zero, size: panelSize))
         panel.contentView?.addSubview(view)
+        notch = NotchController(prefs: prefs)
         applyPrefs()
         placePanel()
-        panel.orderFrontRegardless()
+        applyMode()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = BuddyView.statusIcon()
@@ -102,6 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyPrefs() {
+        notch.applyPrefs()
+        applyMode()
         view.style = prefs.bubbleStyle
         view.followMouse = prefs.followMouse
 
@@ -115,6 +119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.setFrameSize(size)
         view.setBoundsSize(BuddyView.size)
         view.needsDisplay = true
+    }
+
+    /// Corner mode shows the floating buddy window, notch mode the island. Hiding hides whichever is active.
+    private func applyMode() {
+        let corner = !manuallyHidden && prefs.mode == .corner
+        let island = !manuallyHidden && prefs.mode == .notch
+        if corner, !panel.isVisible { panel.orderFrontRegardless() }
+        if !corner, panel.isVisible { panel.orderOut(nil) }
+        if island { notch.show() } else { notch.hide() }
     }
 
     // MARK: Placement
@@ -161,6 +174,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         langItem.submenu = sub
         m.addItem(langItem)
 
+        let modeItem = NSMenuItem(title: L10n.ui(.mode), action: nil, keyEquivalent: "")
+        let modes = NSMenu()
+        for (mode, name) in [(BuddyMode.corner, L10n.ui(.modeCorner)), (.notch, L10n.ui(.modeNotch))] {
+            let it = item(name, #selector(setMode(_:)))
+            it.representedObject = mode.rawValue
+            it.state = prefs.mode == mode ? .on : .off
+            modes.addItem(it)
+        }
+        modeItem.submenu = modes
+        m.addItem(modeItem)
+
         let hide = item(L10n.ui(.hideWhenSleeping), #selector(toggleHideWhenSleeping))
         hide.state = prefs.hideWhenSleeping ? .on : .off
         m.addItem(hide)
@@ -195,11 +219,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { self.brain.greet() }
     }
 
+    @objc private func setMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = BuddyMode(rawValue: raw) else { return }
+        prefs.mode = mode
+    }
+
     @objc private func toggleHideWhenSleeping() { prefs.hideWhenSleeping.toggle() }
 
     @objc private func toggleVisible() {
         manuallyHidden.toggle()
-        if manuallyHidden { panel.orderOut(nil) } else { panel.orderFrontRegardless() }
+        applyMode()
         refreshMenu()
     }
 

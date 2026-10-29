@@ -3,6 +3,9 @@ import Combine
 
 enum BubbleStyle: String, CaseIterable { case pixel, claude }
 
+/// Where the buddy lives: its own corner window, or inside the MacBook notch.
+enum BuddyMode: String, CaseIterable { case corner, notch }
+
 enum BuddySize: String, CaseIterable {
     case small, medium, large
     // Multiples of 1/3 keep the 6pt sprite grid on whole Retina pixels.
@@ -26,6 +29,8 @@ final class Prefs: ObservableObject {
     @Published var idleChatter: Bool { didSet { d.set(idleChatter, forKey: "idleChatter") } }
     @Published var followMouse: Bool { didSet { d.set(followMouse, forKey: "followMouse") } }
     @Published var hideWhenSleeping: Bool { didSet { d.set(hideWhenSleeping, forKey: "hideWhenSleeping") } }
+    @Published var mode: BuddyMode { didSet { d.set(mode.rawValue, forKey: "mode") } }
+    @Published var hideInFullscreen: Bool { didSet { d.set(hideInFullscreen, forKey: "hideInFullscreen") } }
 
     /// Top-right corner of the buddy window, so it stays put when the size changes.
     var anchor: NSPoint? {
@@ -47,6 +52,8 @@ final class Prefs: ObservableObject {
         idleChatter = d.object(forKey: "idleChatter") as? Bool ?? true
         followMouse = d.object(forKey: "followMouse") as? Bool ?? true
         hideWhenSleeping = d.bool(forKey: "hideWhenSleeping")
+        mode = BuddyMode(rawValue: d.string(forKey: "mode") ?? "") ?? .corner
+        hideInFullscreen = d.object(forKey: "hideInFullscreen") as? Bool ?? true
         L10n.lang = lang
     }
 

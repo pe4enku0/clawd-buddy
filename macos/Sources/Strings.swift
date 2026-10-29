@@ -19,6 +19,7 @@ enum UIText {
     case bubbleStyle, stylePixel, styleClaude, size, sizeSmall, sizeMedium, sizeLarge
     case chattiness, chattinessHint, idleChatter, idleChatterHint, followMouse, followMouseHint, hideWhenSleepingHint
     case hooks, hooksOn, hooksOff, hooksHint, footer
+    case mode, modeCorner, modeNotch, hideInFullscreen, hideInFullscreenHint
 }
 
 enum L10n {
@@ -92,6 +93,11 @@ enum L10n {
         case .hooksOff: return ru ? "Хуки не найдены" : "Hooks not found"
         case .hooksHint: return ru ? "Запусти ./install.sh в папке проекта" : "Run ./install.sh in the project folder"
         case .footer: return ru ? "Неофициальный фан-проект" : "Unofficial fan project"
+        case .mode: return ru ? "Режим" : "Mode"
+        case .modeCorner: return ru ? "Угол" : "Corner"
+        case .modeNotch: return ru ? "Чёлка" : "Notch"
+        case .hideInFullscreen: return ru ? "Прятать в полноэкранных приложениях" : "Hide in full-screen apps"
+        case .hideInFullscreenHint: return ru ? "Игры и видео на весь экран не перекрываются" : "Stays out of the way of games and videos"
         }
     }
 
