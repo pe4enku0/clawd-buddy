@@ -2,7 +2,7 @@
 
 <h1 align="center">Clawd Buddy</h1>
 
-<p align="center">A tiny pixel crab that lives in the corner of your screen and reacts to what Claude Code is doing.<br>For macOS and Windows. On a Mac it can also move into the notch, with approvals, chat and more (<a href="#notch-mode-macos-only">macOS only</a>).</p>
+<p align="center">A tiny pixel crab that lives in the corner of your screen and reacts to what Claude Code is doing.<br>For macOS and Windows. It can also approve Claude's requests, chat, read a file you drop on it, look at your screen and keep timers: on Windows in a card next to the crab, on a Mac also inside the notch (<a href="#notch-mode-macos-only">the notch is macOS only</a>).</p>
 
 <p align="center">
   <img src="docs/bubble-claude.png" width="380" alt="Claude-style bubble">
@@ -43,6 +43,23 @@ The app is unsigned, so SmartScreen may warn you. Click **More info → Run anyw
 
 The Windows version talks to Claude Code through HTTP hooks on `127.0.0.1:47321`, at a URL with a random per-install token so other programs and web pages can't send it fake events. It starts with Windows by default (you can turn that off in Settings). That matters because while the app is closed, Claude Code can't reach it. **Disconnect** in Settings removes the hooks again.
 
+### The card next to the crab
+
+The crab stays in its corner. Everything else opens in a card next to it, in the same Claude colors as Settings, light or dark with Windows.
+
+<p align="center">
+  <img src="docs/windows-approval.png" width="400" alt="Allow / Deny card next to the crab">
+  <img src="docs/windows-chat.png" width="400" alt="Chat answer with a timer and the stopwatch">
+</p>
+
+- **Approve from the crab.** When Claude Code asks for permission, the card shows the whole request with **Deny** / **Allow**, without taking focus. Nothing is allowed unless you click **Allow**; no click within 20 s, a click on the ring or a closed card leaves the decision to the terminal or editor as usual. A request too long to show in full can only be answered there.
+- **Chat (Ctrl+Alt+Space,** or **Ask Clawd…** in the menus**).** Answers stream in, code is highlighted, follow-ups remember the conversation, Esc or a click elsewhere closes it.
+- **Drop a file on the crab** for a 3-5 sentence summary, then ask about it.
+- **What's on my screen (Ctrl+Alt+Shift+Space).** Also from the menus, the button next to the chat field, or by asking about the screen in the chat. No permission is needed on Windows.
+- **Timers, reminders and a stopwatch** from the chat, as described under [Timers](#timers-and-stopwatch). A badge under the crab counts down, and when time's up the card rings with **+5 min** / **Done**.
+
+The chat needs Claude Code on the PC (the CLI, or the VS Code extension, which bundles it) and your own login. It runs with only the **Read** tool in a throwaway folder and without your user settings, so the crab doesn't react to its own questions. Both shortcuts can be changed in Settings.
+
 ## macOS
 
 Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`) and `jq` (`brew install jq`) — the installer edits `~/.claude/settings.json` with it.
@@ -61,7 +78,7 @@ This builds a native Swift app into `~/Applications/ClawdBuddy.app` and adds hoo
 - **Click** the crab to poke it. Click the bubble to dismiss it.
 - **Right-click** the crab, or use the tray / menu bar icon, for **Settings…**, language, demo, hide/show, reset position, quit.
 
-<p align="center"><img src="docs/settings.png" width="360" alt="Settings window"><br><sub>Settings on macOS in notch mode. The Windows app has the same window without the notch rows.</sub></p>
+<p align="center"><img src="docs/settings.png" width="360" alt="Settings window"><br><sub>Settings on macOS in notch mode. The Windows window looks the same, with the approval, timer sound and shortcut rows but no notch ones.</sub></p>
 
 Settings:
 - **Language**: English or Russian.
@@ -74,7 +91,7 @@ Settings:
 
 ## Notch mode (macOS only)
 
-> **macOS only.** Everything in this section exists only in the Mac app. The Windows app has the corner crab.
+> **The notch itself is macOS only.** On Windows the same approvals, chat, file drop, screen and timers live in [a card next to the corner crab](#the-card-next-to-the-crab).
 
 On a MacBook, set **Settings → Mode → Notch** (or use the menu bar icon → Mode). The crab moves into the camera notch, which comes alive like the Dynamic Island. On a Mac or display without a notch it sits at the top center of the screen. Corner mode keeps working exactly as before.
 
@@ -108,16 +125,20 @@ On a MacBook, set **Settings → Mode → Notch** (or use the menu bar icon → 
 
 **What's on my screen (⌥⇧Space).** Clawd describes your screen and you can ask follow-ups ("what does this error mean?"). Writing "what's on my screen" in the chat, or the button next to the chat field, works too. With **Screen Recording** allowed it takes a silent screenshot. Without it (macOS asks once, and managed Macs may block it) the notch asks you to press **⌘⌃⇧4**, select an area, and picks the picture up from the clipboard. Screenshots and dropped files are deleted when the chat closes.
 
+#### Timers and stopwatch
+
+Write to Clawd in the chat, in English or Russian: "set a timer for 10 minutes", "remind me in 20 minutes to drink water", "remind me at 3pm to call Bob", "cancel the timer", "how much time is left", "start a stopwatch", "pause the stopwatch". Questions about timers ("how do I make a timer in JS?") stay questions. Phrasing it can't read itself ("remind me the day after tomorrow in the morning") goes to Claude. A running timer counts down in the notch's wing (a stopwatch counts up), hover lists them with cancel and pause buttons, and when time's up the notch drops a card with **+5 min** / **Done** and a short sound, even over a full-screen app. Timers survive a restart.
+
 No Accessibility, Screen Recording or admin rights are required: everything that needs a permission falls back to something that doesn't. The notch hides over full-screen apps.
 
-Notch settings: **Mode**, **Hide in full-screen apps**, **Glow while working**, **Approve from the notch**, and both shortcuts. **Play demo** walks through every notch state.
+Notch settings: **Mode**, **Hide in full-screen apps**, **Glow while working**, **Approve from the notch**, **Timer sound**, and both shortcuts. **Play demo** walks through every notch state.
 
 ## Repository
 
 | Folder | |
 |---|---|
 | `macos/` | native Swift/AppKit + SwiftUI app; `build.sh`, `install.sh`, `uninstall.sh`. Notch mode lives in `Notch*.swift`, with `Approval.swift` (permission hook ↔ app), `ClaudeRunner.swift` (`claude -p`), `HotKeys.swift`, `FileDrop.swift` and `ScreenGrab.swift` |
-| `windows/` | Electron app: `src/main.js` (window, tray, hook server), `src/hooks.js` (settings.json), `src/renderer/` (sprite, brain, strings, settings page) |
+| `windows/` | Electron app: `src/main.js` (window, tray, hook server, approvals, chat, timers), `src/hooks.js` (settings.json), `src/card.js` + `src/renderer/card.*` (the card next to the crab), `src/claude.js` (`claude -p`), `src/files.js`, `src/timers.js`, `src/renderer/` (sprite, brain, strings, settings page), `test/` |
 | `.github/workflows/build.yml` | builds the Windows `.exe` and the universal macOS app on every push to `main`; on a `v*` tag it publishes a release |
 
 The two apps share the same sprite, moods and phrases. The JS renderer is a port of the Swift `BuddyView`/`Brain`/`Strings`.

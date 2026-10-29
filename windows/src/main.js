@@ -34,6 +34,8 @@ let approval = null;
 const APPROVAL_CARD_MS = 20_000;
 // Timers and the stopwatch; `alarm` is the one whose card is up, the queue holds any that rang meanwhile.
 let timerStore, alarm = null, alarmQueue = [], lastBadge = "", lastTimerKey = "";
+// While "Play demo" runs: the card it is showing, and its pending steps.
+let demoCard = null, demoSteps = [];
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -233,6 +235,7 @@ const chatState = () => ({
 /** What the card shows: a permission request first, then an alarm, then the chat. */
 function cardState() {
   if (approval) return approvalState();
+  if (demoCard) return demoCard;
   if (alarm) return alarmState();
   if (chat.open) return chatState();
   return null;
@@ -243,10 +246,11 @@ function refreshCard({ focus = false } = {}) {
   if (s) card.show(s, { focus }); else card.hide();
 }
 
-function pushChat() { if (chat.open && !approval && !alarm) card.send(chatState()); }
+function pushChat() { if (chat.open && !approval && !alarm && !demoCard) card.send(chatState()); }
 
 function openChat() {
   if (manuallyHidden) toggleVisible();
+  if (demoSteps.length) stopCardDemo();
   if (!chat.open) {
     Object.assign(chat, { open: true, phase: "input", question: "", answer: "", error: false, note: "", history: [],
       attach: false, looking: false });
@@ -509,6 +513,7 @@ function timerTick() {
   const due = timerStore.popDue();
   if (due.length) alarmQueue.push(...due);
   if (!alarm && alarmQueue.length && !approval) {
+    if (demoSteps.length) stopCardDemo();
     alarm = { ...alarmQueue.shift(), shownAt: Date.now() };
     if (manuallyHidden) toggleVisible();
     sendToBuddy("command", "alarm");
@@ -630,6 +635,42 @@ function startServer() {
 function runCommand(cmd) {
   if (manuallyHidden) toggleVisible();
   sendToBuddy("command", cmd);
+  if (cmd === "demo") playCardDemo();
+}
+
+/**
+ * The card's part of "Play demo", in step with the crab's script (brain.js): the permission card
+ * when the crab asks, then chat, an alarm and a timer badge. Its buttons do nothing.
+ */
+function playCardDemo() {
+  stopCardDemo();
+  closeChat();
+  const ru = lang() === "ru", question = ru ? "Как отменить последний коммит?" : "How do I undo my last commit?";
+  const chatCard = (phase, answer) => ({ view: "chat", phase, question, answer, error: false, note: "", lang: lang(),
+    timers: [], stopwatch: null });
+  const steps = [
+    [18_200, () => ({ view: "approval", title: L10n.ui("approveCommand"), detail: "rm -rf node_modules && npm install",
+      since: Date.now(), seconds: 20, lang: lang() })],
+    [21_000, () => chatCard("thinking", "")],
+    [23_000, () => chatCard("answer", ru
+      ? "Если коммит ещё не отправлен, выполни `git reset --soft HEAD~1`: коммит исчезнет, а изменения останутся в файлах."
+      : "If it isn't pushed yet, run `git reset --soft HEAD~1`: the commit goes away and your changes stay in the files.")],
+    [27_000, () => ({ view: "alarm", lang: lang(), since: Date.now(), sound: false,
+      title: "⏰ " + (ru ? "Выпить воды" : "Drink water"), subtitle: fmt("timerNamed", { d: T.length(600, lang()) }) })],
+    [30_000, () => { sendToBuddy("badge", { text: `⏱ ${T.compact(581, lang())}`, kind: "timer" }); return null; }],
+  ];
+  for (const [at, make] of steps) {
+    demoSteps.push(setTimeout(() => { demoCard = make(); refreshCard(); }, at));
+  }
+  demoSteps.push(setTimeout(stopCardDemo, 34_000));
+}
+
+function stopCardDemo() {
+  demoSteps.forEach(clearTimeout);
+  demoSteps = [];
+  demoCard = null;
+  lastBadge = "";  // let the next timer tick put the real badge back
+  refreshCard();
 }
 
 function toggleVisible() {
