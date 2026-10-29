@@ -47,6 +47,7 @@ final class SettingsWindowController: NSWindowController {
 
 private struct SettingsView: View {
     @ObservedObject var prefs: Prefs
+    @ObservedObject var recorder = HotkeyRecorder.shared
     let onDemo: () -> Void
     private var hooksOn: Bool { prefs.hooksInstalled }
     /// The version comes from Info.plist so a bump is one edit, not three.
@@ -103,6 +104,10 @@ private struct SettingsView: View {
                 toggle(L10n.ui(.notchOutline), L10n.ui(.notchOutlineHint), $prefs.notchOutline)
                 Divider().overlay(Claude.border)
                 toggle(L10n.ui(.notchApproval), L10n.ui(.notchApprovalHint), $prefs.notchApproval)
+                Divider().overlay(Claude.border)
+                hotkeyRow(L10n.ui(.chatHotkey), L10n.ui(.chatHotkeyHint), id: "chat", key: prefs.chatHotkey) {
+                    prefs.chatHotkey = $0
+                }
             }
 
             section(L10n.ui(.claudeCode)) {
@@ -157,6 +162,25 @@ private struct SettingsView: View {
             Text(title).foregroundColor(Claude.text)
             Spacer()
             control()
+        }
+    }
+
+    private func hotkeyRow(_ title: String, _ hint: String, id: String, key: Hotkey,
+                           set: @escaping (Hotkey) -> Void) -> some View {
+        let active = recorder.recording == id
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).foregroundColor(Claude.text)
+                Text(hint).font(.caption).foregroundColor(Claude.secondary)
+            }
+            Spacer()
+            Text(active ? L10n.ui(.pressKeys) : key.display)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(active ? Claude.accent : Claude.text)
+                .padding(.horizontal, 11).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Claude.track))
+                .contentShape(Rectangle())
+                .onTapGesture { active ? recorder.stop() : recorder.start(id, onCapture: set) }
         }
     }
 

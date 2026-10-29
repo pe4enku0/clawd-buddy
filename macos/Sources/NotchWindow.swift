@@ -7,7 +7,12 @@ private final class NotchHostingView: NSHostingView<NotchRootView> {
 }
 
 private final class NotchPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    /// Only while the chat is open: a non-activating panel can then take typing without
+    /// pulling focus away from the app you're in.
+    var allowsKey = false
+    var onCancel: (() -> Void)?
+    override var canBecomeKey: Bool { allowsKey }
+    override func cancelOperation(_ sender: Any?) { onCancel?() }
     override var canBecomeMain: Bool { false }
     // Borderless windows may sit over the menu bar; don't let AppKit push us below it.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
@@ -30,6 +35,11 @@ final class NotchController {
     private var doneUntil: Date?
     private var approval: ApprovalTicket?
     private var approvalTimer: Timer?
+    private(set) var chatOpen = false
+    private var chatPhase = ChatPhase.input
+    private var chatHistory: [(question: String, answer: String)] = []
+    private let runner = ClaudeRunner()
+    private var clickMonitor: Any?
     private var hiddenForFullscreen = false
     private var observers: [NSObjectProtocol] = []
     private(set) var isShown = false
@@ -49,7 +59,12 @@ final class NotchController {
         panel.isReleasedWhenClosed = false
         panel.ignoresMouseEvents = true
         panel.contentView = NotchHostingView(rootView: NotchRootView(model: model))
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.onCancel = { [weak self] in self?.closeChat() }
         model.onApprovalAnswer = { [weak self] in self?.answerApproval($0) }
+        model.onChatSubmit = { [weak self] in self?.ask($0) }
+        model.onChatClose = { [weak self] in self?.closeChat() }
+        model.onOpenChat = { [weak self] in self?.openChat() }
         applyPrefs()
     }
 
@@ -90,6 +105,7 @@ final class NotchController {
         }
         observers = []
         dismissApproval()
+        closeChat()
         panel.orderOut(nil)
         hovering = false
         doneUntil = nil
@@ -152,6 +168,90 @@ final class NotchController {
         approvalTimer = nil
     }
 
+    // MARK: Chat
+
+    func toggleChat() { chatOpen ? closeChat() : openChat() }
+
+    /// Drops the chat card and puts the cursor in its field. Each opening is a fresh conversation.
+    func openChat() {
+        guard isShown, !hiddenForFullscreen, !chatOpen else { return }
+        chatOpen = true
+        chatHistory = []
+        chatPhase = .input
+        model.chatQuestion = ""
+        model.chatAnswer = ""
+        model.chatError = false
+        model.chatAnswerHeight = 0
+        set(chatState)
+        panel.allowsKey = true
+        panel.makeKey()
+        // A click anywhere else closes it, like a popover. Mouse monitors need no permission.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closeChat()
+        }
+    }
+
+    func closeChat() {
+        guard chatOpen else { return }
+        chatOpen = false
+        runner.cancel()
+        if let m = clickMonitor { NSEvent.removeMonitor(m) }
+        clickMonitor = nil
+        model.chatField = nil
+        panel.allowsKey = false
+        if panel.isKeyWindow {
+            // Give the keyboard back to the app you were in. By now the island is folded into the
+            // cutout, so re-ordering the panel is invisible.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                guard let self, !self.chatOpen, self.isShown else { return }
+                self.panel.orderOut(nil)
+                self.panel.orderFrontRegardless()
+            }
+        }
+    }
+
+    private var chatState: NotchState {
+        switch chatPhase {
+        case .input: return .chatInput
+        case .thinking: return .chatThinking
+        case .answer: return .chatAnswer
+        }
+    }
+
+    private func ask(_ question: String) {
+        guard chatOpen, chatPhase != .thinking else { return }
+        let prompt = Self.chatPrompt(history: chatHistory, question: question)
+        model.chatQuestion = question
+        model.chatAnswer = ""
+        model.chatError = false
+        chatPhase = .thinking
+        runner.ask(prompt, onText: { [weak self] partial in
+            guard let self, self.chatOpen else { return }
+            self.model.chatAnswer = partial
+            self.chatPhase = .answer
+        }, onDone: { [weak self] result in
+            guard let self, self.chatOpen else { return }
+            switch result {
+            case .success(let answer):
+                self.model.chatAnswer = answer
+                self.chatHistory.append((question, answer))
+            case .failure(let f):
+                self.model.chatAnswer = f.message
+                self.model.chatError = true
+            }
+            self.chatPhase = .answer
+            self.panel.makeKey()
+            if let f = self.model.chatField { self.panel.makeFirstResponder(f) }
+        })
+    }
+
+    /// The CLI call is stateless, so earlier turns of this chat ride along in the prompt.
+    private static func chatPrompt(history: [(question: String, answer: String)], question: String) -> String {
+        guard !history.isEmpty else { return question }
+        let past = history.map { "User: \($0.question)\nClawd: \($0.answer)" }.joined(separator: "\n\n")
+        return "Earlier in this chat:\n\n\(past)\n\n---\nThe user's new message:\n\(question)"
+    }
+
     // MARK: Geometry
 
     /// The built-in display with the cutout if there is one, otherwise the menu bar screen.
@@ -180,8 +280,8 @@ final class NotchController {
 
     /// Where the island currently is (its target size, shoulders included), in panel coordinates
     /// with the origin at the top-left.
-    private func islandRect(for state: NotchState) -> NSRect {
-        let s = NotchModel.size(of: state, notchWidth: model.notchWidth, notchHeight: model.notchHeight)
+    private func islandRect() -> NSRect {
+        let s = model.size
         let w = s.width + 2 * NotchStyle.shoulder
         return NSRect(x: (panel.frame.width - w) / 2, y: 0, width: w, height: s.height)
     }
@@ -197,7 +297,7 @@ final class NotchController {
         let m = NSEvent.mouseLocation
         let local = NSPoint(x: m.x - panel.frame.minX, y: panel.frame.maxY - m.y)
         // A little slack, and the very top edge of the screen counts as inside.
-        let r = islandRect(for: model.state)
+        let r = islandRect()
         let inside = NSRect(x: r.minX - 2, y: r.minY - 2, width: r.width + 4, height: r.height + 2).contains(local)
 
         if inside {
@@ -211,7 +311,8 @@ final class NotchController {
                 outsideSince = Date()
             }
         }
-        set(approval != nil ? .approval : hovering ? .hover : restingState)
+        // Most urgent first: a permission request, then the chat, then hover.
+        set(approval != nil ? .approval : chatOpen ? chatState : hovering ? .hover : restingState)
         updateOutline()
 
         let ignore = !inside
@@ -298,7 +399,7 @@ final class NotchController {
         let hide = prefs.hideInFullscreen && frontmostCoversScreen(screen)
         guard hide != hiddenForFullscreen else { return }
         hiddenForFullscreen = hide
-        if hide { set(.compact); panel.ignoresMouseEvents = true }
+        if hide { closeChat(); set(.compact); panel.ignoresMouseEvents = true }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.25
             panel.animator().alphaValue = hide ? 0 : 1

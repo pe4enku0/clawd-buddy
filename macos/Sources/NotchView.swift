@@ -6,7 +6,7 @@ enum NotchState {
     case compact            // at rest: hidden inside the real cutout
     case wings              // Claude is busy: crab on the left, activity on the right
     case sleeping
-    case hover, approval, done, chatThinking, chatAnswer, fileOver
+    case hover, approval, done, chatInput, chatThinking, chatAnswer, fileOver
 }
 
 /// What the right wing shows.
@@ -63,9 +63,41 @@ final class NotchModel: ObservableObject {
     /// Buttons on the approval card; the controller decides what a click may do.
     var onApprovalAnswer: ((ApprovalDecision) -> Void)?
 
+    @Published var chatQuestion = ""
+    @Published var chatAnswer = ""
+    @Published var chatError = false
+    /// Measured height of the answer text; the card grows with it up to a limit.
+    @Published var chatAnswerHeight: CGFloat = 0
+    @Published var answerHovered = false
+    @Published var copiedAt = Date.distantPast
+    weak var chatField: NSTextField?
+    var onChatSubmit: ((String) -> Void)?
+    var onChatClose: (() -> Void)?
+    var onOpenChat: (() -> Void)?
+
+    func submitDraft() {
+        guard let f = chatField else { return }
+        let text = f.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        f.stringValue = ""
+        onChatSubmit?(text)
+    }
+
+    func copyAnswer() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(chatAnswer, forType: .string)
+        copiedAt = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.copiedAt = .distantPast }
+    }
+
     init(buddy: BuddyView) { self.buddy = buddy }
 
-    var size: CGSize { Self.size(of: state, notchWidth: notchWidth, notchHeight: notchHeight) }
+    var size: CGSize {
+        if state == .chatAnswer {
+            return CGSize(width: 400, height: notchHeight + min(chatAnswerMaxExtra, chatAnswerChrome + max(chatAnswerHeight, 20)))
+        }
+        return Self.size(of: state, notchWidth: notchWidth, notchHeight: notchHeight)
+    }
     var bottomRadius: CGFloat { Self.radius(of: state) }
 
     static func size(of s: NotchState, notchWidth n: CGFloat, notchHeight h: CGFloat) -> CGSize {
@@ -77,6 +109,7 @@ final class NotchModel: ObservableObject {
         case .hover, .fileOver: return CGSize(width: 360, height: h + 58)
         case .approval: return CGSize(width: 380, height: h + 110)
         case .done: return CGSize(width: 320, height: h + 52)
+        case .chatInput: return CGSize(width: 400, height: h + 58)
         case .chatThinking: return CGSize(width: 360, height: h + 56)
         case .chatAnswer: return CGSize(width: 400, height: h + 150)
         }
@@ -86,7 +119,7 @@ final class NotchModel: ObservableObject {
         switch s {
         case .compact, .wings, .sleeping: return 10
         case .hover, .fileOver, .chatThinking: return 26
-        case .approval, .chatAnswer: return 30
+        case .approval, .chatAnswer, .chatInput: return 30
         case .done: return 24
         }
     }
@@ -151,6 +184,12 @@ struct NotchRootView: View {
             DoneContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         case .approval:
             ApprovalContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
+        case .chatInput:
+            ChatInputContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
+        case .chatThinking:
+            ChatThinkingContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
+        case .chatAnswer:
+            ChatAnswerContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         default:
             EmptyView()
         }
@@ -181,7 +220,7 @@ private struct HoverContent: View {
                 .frame(width: 28, height: 26)
             TitleBlock(title: model.title, subtitle: model.subtitle)
             Spacer(minLength: 8)
-            CircleButton(symbol: "bubble.left.fill")
+            CircleButton(symbol: "bubble.left.fill") { model.onOpenChat?() }
             CircleButton(symbol: "text.viewfinder")
         }
         .padding(.horizontal, 18)
@@ -270,7 +309,7 @@ private struct TitleBlock: View {
     }
 }
 
-/// 34 pt round dark button with an SF Symbol. Actions arrive in later stages.
+/// 34 pt round dark button with an SF Symbol.
 private struct CircleButton: View {
     let symbol: String
     var action: () -> Void = {}

@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var prefsSub: AnyCancellable?
     private var manuallyHidden = false
     private var hookPort: CFMessagePort?
+    private var registeredChatKey: Hotkey?
 
     private var panelSize: NSSize {
         let s = prefs.size.scale
@@ -143,6 +144,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if corner, !panel.isVisible { panel.orderFrontRegardless() }
         if !corner, panel.isVisible { panel.orderOut(nil) }
         if island { notch.show() } else { notch.hide() }
+
+        // The notch shortcuts only exist in notch mode; corner mode leaves ⌥Space alone.
+        let chatKey = island ? prefs.chatHotkey : nil
+        if chatKey != registeredChatKey {
+            registeredChatKey = chatKey
+            HotKeys.shared.set(1, chatKey) { [weak self] in self?.notch.toggleChat() }
+        }
     }
 
     // MARK: Placement

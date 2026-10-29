@@ -33,6 +33,7 @@ final class Prefs: ObservableObject {
     @Published var hideInFullscreen: Bool { didSet { d.set(hideInFullscreen, forKey: "hideInFullscreen") } }
     @Published var notchOutline: Bool { didSet { d.set(notchOutline, forKey: "notchOutline") } }
     @Published var notchApproval: Bool { didSet { d.set(notchApproval, forKey: "notchApproval") } }
+    @Published var chatHotkey: Hotkey { didSet { save(chatHotkey, "chatHotkey") } }
 
     /// Top-right corner of the buddy window, so it stays put when the size changes.
     var anchor: NSPoint? {
@@ -58,7 +59,18 @@ final class Prefs: ObservableObject {
         hideInFullscreen = d.object(forKey: "hideInFullscreen") as? Bool ?? true
         notchOutline = d.object(forKey: "notchOutline") as? Bool ?? true
         notchApproval = d.object(forKey: "notchApproval") as? Bool ?? true
+        chatHotkey = Self.load("chatHotkey", d) ?? .chatDefault
         L10n.lang = lang
+    }
+
+    private func save(_ k: Hotkey, _ key: String) {
+        d.set(["code": Int(k.keyCode), "mods": Int(k.modifiers), "display": k.display], forKey: key)
+    }
+
+    private static func load(_ key: String, _ d: UserDefaults) -> Hotkey? {
+        guard let dict = d.dictionary(forKey: key), let code = dict["code"] as? Int, let mods = dict["mods"] as? Int,
+              let display = dict["display"] as? String else { return nil }
+        return Hotkey(keyCode: UInt32(code), modifiers: UInt32(mods), display: display)
     }
 
     @Published private(set) var hooksInstalled = false

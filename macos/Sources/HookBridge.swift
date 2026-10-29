@@ -11,6 +11,8 @@ enum Bridge {
 enum HookBridge {
     static func run() {
         let data = FileHandle.standardInput.readDataToEndOfFile()
+        // The notch's own `claude -p` calls: the crab shouldn't react to itself.
+        if ProcessInfo.processInfo.environment[ClaudeRunner.internalEnv] != nil { return }
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         if json["hook_event_name"] as? String == "PermissionRequest" {
             // Not worth launching the app for: it couldn't answer in time anyway.

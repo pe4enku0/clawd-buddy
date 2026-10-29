@@ -427,6 +427,15 @@ final class BuddyView: NSView {
         Self.paint(p, at: NSPoint(x: origin.x + CGFloat(p.dx) * u, y: origin.y - (p.lift * u).rounded()), unit: u)
     }
 
+    /// The thinking pose on its own, for the notch chat (whatever Claude Code is doing meanwhile).
+    static func paintThinking(at origin: NSPoint, unit u: CGFloat, tick t: Int) {
+        var p = Pose()
+        p.crouch = (t / 20) % 2
+        p.eyes = (t / 25) % 2 == 0 ? .lookUp : .lookLeft
+        p.lArm = .low
+        paint(p, at: origin, unit: u)
+    }
+
     /// Paints a pose into a flipped context with its top-left grid cell at `at`.
     fileprivate static func paint(_ p: Pose, at: NSPoint, unit u: CGFloat) {
         func fill(_ c: Int, _ r: Int, _ w: Int = 1, _ h: Int = 1, _ color: NSColor) {

@@ -21,6 +21,7 @@ enum UIText {
     case hooks, hooksOn, hooksOff, hooksHint, footer
     case mode, modeCorner, modeNotch, hideInFullscreen, hideInFullscreenHint, notchOutline, notchOutlineHint
     case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal
+    case chatPlaceholder, chatMore, chatThinking, copy, copied, chatHotkey, chatHotkeyHint, pressKeys
 }
 
 enum L10n {
@@ -107,6 +108,14 @@ enum L10n {
         case .allow: return ru ? "Разрешить" : "Allow"
         case .deny: return ru ? "Отклонить" : "Deny"
         case .answerInTerminal: return ru ? "Отвечу в терминале" : "I'll answer in the terminal"
+        case .chatPlaceholder: return ru ? "Спроси что-нибудь…" : "Ask anything…"
+        case .chatMore: return ru ? "Спросить ещё…" : "Ask a follow-up…"
+        case .chatThinking: return ru ? "Думаю…" : "Thinking…"
+        case .copy: return ru ? "Скопировать" : "Copy"
+        case .copied: return ru ? "Скопировано" : "Copied"
+        case .chatHotkey: return ru ? "Хоткей чата" : "Chat shortcut"
+        case .chatHotkeyHint: return ru ? "Открывает чат в чёлке. Нажми и введи новое сочетание" : "Opens chat in the notch. Click, then press new keys"
+        case .pressKeys: return ru ? "Нажми сочетание…" : "Press keys…"
         }
     }
 
