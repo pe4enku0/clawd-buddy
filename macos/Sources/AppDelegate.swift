@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   self.notch.presentApproval(ticket) else { ticket.answer(.terminal); return }
         }
         approvals.start()
+        FileDrop.cleanUp()
         applyPrefs()
         placePanel()
         applyMode()

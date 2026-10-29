@@ -436,6 +436,14 @@ final class BuddyView: NSView {
         paint(p, at: origin, unit: u)
     }
 
+    /// Happy waving, for the notch's file-drop card.
+    static func paintWaving(at origin: NSPoint, unit u: CGFloat, tick t: Int) {
+        var p = Pose()
+        p.eyes = .happy
+        p.lArm = (t / 7) % 2 == 0 ? .up : .down
+        paint(p, at: origin, unit: u)
+    }
+
     /// Paints a pose into a flipped context with its top-left grid cell at `at`.
     fileprivate static func paint(_ p: Pose, at: NSPoint, unit u: CGFloat) {
         func fill(_ c: Int, _ r: Int, _ w: Int = 1, _ h: Int = 1, _ color: NSColor) {

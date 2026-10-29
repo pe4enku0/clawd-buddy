@@ -31,7 +31,7 @@ struct ChatThinkingContent: View {
     var body: some View {
         HStack(spacing: 12) {
             ZStack(alignment: .top) {
-                CrabSprite(buddy: model.buddy, unit: 2, thinking: true)
+                CrabSprite(buddy: model.buddy, unit: 2, pose: .thinking)
                     .frame(width: 28, height: 22)
                     .padding(.top, 8)
                 TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
@@ -80,7 +80,14 @@ struct ChatAnswerContent: View {
             }
             .frame(height: 18)
             ScrollView(.vertical, showsIndicators: false) {
-                AnswerText(text: model.chatAnswer, isError: model.chatError)
+                VStack(alignment: .leading, spacing: 6) {
+                    if !model.chatNote.isEmpty {
+                        Label(model.chatNote, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundColor(NotchStyle.yellow)
+                    }
+                    AnswerText(text: model.chatAnswer, isError: model.chatError)
+                }
                     .background(GeometryReader { g in
                         Color.clear.preference(key: AnswerHeightKey.self, value: g.size.height)
                     })

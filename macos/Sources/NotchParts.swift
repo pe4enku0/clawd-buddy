@@ -4,23 +4,25 @@ import SwiftUI
 // Small animated pieces of the notch: the live crab, wing icons, outline and confetti.
 
 /// The live crab from `BuddyView`, redrawn at notch size.
-/// With `thinking`, it shows the chat's own thinking pose instead of what Claude Code is doing.
+/// `live` mirrors what Claude Code is doing; the others are the notch's own poses.
+enum CrabPose { case live, thinking, waving }
+
 struct CrabSprite: NSViewRepresentable {
     let buddy: BuddyView
     let unit: CGFloat
-    var thinking = false
+    var pose = CrabPose.live
 
     func makeNSView(context: Context) -> NotchCrabView { NotchCrabView(buddy: buddy, unit: unit) }
     func updateNSView(_ view: NotchCrabView, context: Context) {
         view.unit = unit
-        view.thinking = thinking
+        view.pose = pose
     }
 }
 
 final class NotchCrabView: NSView {
     private weak var buddy: BuddyView?
     var unit: CGFloat
-    var thinking = false
+    var pose = CrabPose.live
     private var timer: Timer?
     private var frames = 0
 
@@ -47,7 +49,7 @@ final class NotchCrabView: NSView {
     private func frameTick() {
         frames += 1
         guard let buddy, let window else { return }
-        if thinking { needsDisplay = true; return }
+        if pose != .live { needsDisplay = true; return }
         // Map the cursor into the corner buddy's coordinates so the eyes follow it here too.
         let r = window.convertToScreen(convert(bounds, to: nil))
         let m = NSEvent.mouseLocation, k = BuddyView.unit / unit, a = buddy.eyeAnchor
@@ -61,7 +63,11 @@ final class NotchCrabView: NSView {
         let w = CGFloat(BuddyView.gridW) * unit, h = CGFloat(BuddyView.gridH) * unit
         // Whole points keep the pixel grid crisp.
         let origin = NSPoint(x: ((bounds.width - w) / 2).rounded(), y: ((bounds.height - h) / 2).rounded())
-        if thinking { BuddyView.paintThinking(at: origin, unit: unit, tick: frames) } else { buddy.paintCrab(at: origin, unit: unit) }
+        switch pose {
+        case .live: buddy.paintCrab(at: origin, unit: unit)
+        case .thinking: BuddyView.paintThinking(at: origin, unit: unit, tick: frames)
+        case .waving: BuddyView.paintWaving(at: origin, unit: unit, tick: frames)
+        }
     }
 }
 

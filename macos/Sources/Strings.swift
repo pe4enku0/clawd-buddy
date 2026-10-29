@@ -22,6 +22,7 @@ enum UIText {
     case mode, modeCorner, modeNotch, hideInFullscreen, hideInFullscreenHint, notchOutline, notchOutlineHint
     case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal
     case chatPlaceholder, chatMore, chatThinking, copy, copied, chatHotkey, chatHotkeyHint, pressKeys
+    case fileDropTitle, fileUnsupported, fileUnsupportedLong, fileUnreadable
 }
 
 enum L10n {
@@ -116,6 +117,11 @@ enum L10n {
         case .chatHotkey: return ru ? "Хоткей чата" : "Chat shortcut"
         case .chatHotkeyHint: return ru ? "Открывает чат в чёлке. Нажми и введи новое сочетание" : "Opens chat in the notch. Click, then press new keys"
         case .pressKeys: return ru ? "Нажми сочетание…" : "Press keys…"
+        case .fileDropTitle: return ru ? "Отпусти — перескажу" : "Drop it, I'll sum it up"
+        case .fileUnsupported: return ru ? "Такой файл не прочитаю" : "Can't read this one"
+        case .fileUnsupportedLong: return ru ? "Такие файлы я не читаю. Подойдут текст, код, .md, .pdf и картинки .png/.jpg."
+            : "I can't read this kind of file. Text, code, .md, .pdf and .png/.jpg images work."
+        case .fileUnreadable: return ru ? "Не получилось открыть файл." : "Couldn't open that file."
         }
     }
 
@@ -129,6 +135,10 @@ enum L10n {
             let name = tool.hasPrefix("mcp__") ? String(tool.split(separator: "_").last ?? "") : tool
             return ru ? "Разрешить «\(name)»?" : "Allow \(name)?"
         }
+    }
+
+    static func fileSummaryQuestion(_ name: String) -> String {
+        ru ? "Перескажи «\(name)»" : "Sum up \u{201C}\(name)\u{201D}"
     }
 
     /// One-word status under the crab's last line in the notch.

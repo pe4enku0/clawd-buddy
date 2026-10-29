@@ -2,8 +2,25 @@ import AppKit
 import SwiftUI
 
 /// Clicks on a panel that never becomes key must still reach the buttons on the first try.
+/// Also the drop target for files dragged onto the notch.
 private final class NotchHostingView: NSHostingView<NotchRootView> {
+    var onDrop: ((URL) -> Bool)?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { operation(for: sender) }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { operation(for: sender) }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let url = Self.fileURL(sender.draggingPasteboard) else { return false }
+        return onDrop?(url) ?? false
+    }
+
+    private func operation(for sender: NSDraggingInfo) -> NSDragOperation {
+        Self.fileURL(sender.draggingPasteboard).map(FileDrop.looksSupported) == true ? .copy : []
+    }
+
+    static func fileURL(_ pb: NSPasteboard) -> URL? {
+        (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first
+    }
 }
 
 private final class NotchPanel: NSPanel {
@@ -40,6 +57,12 @@ final class NotchController {
     private var chatHistory: [(question: String, answer: String)] = []
     private let runner = ClaudeRunner()
     private var clickMonitor: Any?
+    /// The file this chat is about, kept for follow-ups and deleted when the chat closes.
+    private var chatFile: DroppedFile?
+    private let dragPasteboard = NSPasteboard(name: .drag)
+    private lazy var dragBaseline = dragPasteboard.changeCount
+    /// A file is being dragged somewhere on screen (left button down, files on the drag pasteboard).
+    private var dragFile: URL?
     private var hiddenForFullscreen = false
     private var observers: [NSObjectProtocol] = []
     private(set) var isShown = false
@@ -58,7 +81,10 @@ final class NotchController {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.ignoresMouseEvents = true
-        panel.contentView = NotchHostingView(rootView: NotchRootView(model: model))
+        let host = NotchHostingView(rootView: NotchRootView(model: model))
+        host.registerForDraggedTypes([.fileURL])
+        host.onDrop = { [weak self] in self?.dropped($0) ?? false }
+        panel.contentView = host
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.onCancel = { [weak self] in self?.closeChat() }
         model.onApprovalAnswer = { [weak self] in self?.answerApproval($0) }
@@ -182,6 +208,7 @@ final class NotchController {
         model.chatAnswer = ""
         model.chatError = false
         model.chatAnswerHeight = 0
+        model.chatNote = ""
         set(chatState)
         panel.allowsKey = true
         panel.makeKey()
@@ -195,6 +222,8 @@ final class NotchController {
         guard chatOpen else { return }
         chatOpen = false
         runner.cancel()
+        FileDrop.discard(chatFile)
+        chatFile = nil
         if let m = clickMonitor { NSEvent.removeMonitor(m) }
         clickMonitor = nil
         model.chatField = nil
@@ -218,14 +247,22 @@ final class NotchController {
         }
     }
 
-    private func ask(_ question: String) {
+    /// `prompt` replaces the usual one (the file summary request).
+    private func ask(_ question: String, prompt custom: String? = nil) {
         guard chatOpen, chatPhase != .thinking else { return }
-        let prompt = Self.chatPrompt(history: chatHistory, question: question)
+        var prompt = custom ?? Self.chatPrompt(history: chatHistory, question: question)
+        if custom == nil {
+            model.chatNote = ""
+            if let f = chatFile {
+                prompt = "Earlier the user dropped the file \(f.name) into this chat; it is in the current folder. "
+                    + "Read it again if the question needs it.\(f.hint)\n\n" + prompt
+            }
+        }
         model.chatQuestion = question
         model.chatAnswer = ""
         model.chatError = false
         chatPhase = .thinking
-        runner.ask(prompt, onText: { [weak self] partial in
+        runner.ask(prompt, files: chatFile.map { [$0.url] } ?? [], onText: { [weak self] partial in
             guard let self, self.chatOpen else { return }
             self.model.chatAnswer = partial
             self.chatPhase = .answer
@@ -243,6 +280,61 @@ final class NotchController {
             self.panel.makeKey()
             if let f = self.model.chatField { self.panel.makeFirstResponder(f) }
         })
+    }
+
+    private func fail(_ message: String) {
+        model.chatAnswer = message
+        model.chatError = true
+        chatPhase = .answer
+    }
+
+    // MARK: Files
+
+    /// A file landed on the notch: sum it up in the chat, then keep it for follow-up questions.
+    private func dropped(_ url: URL) -> Bool {
+        dragFile = nil
+        if !chatOpen { openChat() }
+        guard chatOpen else { return false }
+        runner.cancel()
+        FileDrop.discard(chatFile)
+        chatFile = nil
+        chatHistory = []
+        chatPhase = .input
+        guard let file = FileDrop.prepare(url) else {
+            model.chatQuestion = url.lastPathComponent
+            model.chatNote = ""
+            fail(L10n.ui(FileDrop.kind(of: url) == nil ? .fileUnsupportedLong : .fileUnreadable))
+            return true
+        }
+        chatFile = file
+        model.chatNote = file.note ?? ""
+        let lang = L10n.lang == .ru ? "Russian" : "English"
+        let prompt = "The user dropped a file into the notch: \(file.name), in the current folder. Read it and sum it up "
+            + "in 3-5 sentences: what it is and its main points.\(file.hint) Reply in \(lang)."
+        ask(L10n.fileSummaryQuestion(file.name), prompt: prompt)
+        return true
+    }
+
+    /// Polls instead of watching events: no permissions needed. A drag shows up as the left button
+    /// held down while the drag pasteboard gets new contents.
+    private func updateDrag() {
+        guard NSEvent.pressedMouseButtons & 1 != 0 else {
+            dragBaseline = dragPasteboard.changeCount
+            dragFile = nil
+            return
+        }
+        guard dragFile == nil, dragPasteboard.changeCount != dragBaseline else { return }
+        dragBaseline = dragPasteboard.changeCount
+        dragFile = NotchHostingView.fileURL(dragPasteboard)
+        if let url = dragFile {
+            model.dragLabel = url.lastPathComponent
+            model.dragSupported = FileDrop.looksSupported(url)
+        }
+    }
+
+    /// The area near the top of the screen where a dragged file opens the notch.
+    private func dropZone() -> NSRect {
+        NSRect(x: panel.frame.width / 2 - 220, y: -2, width: 440, height: model.notchHeight + 90)
     }
 
     /// The CLI call is stateless, so earlier turns of this chat ride along in the prompt.
@@ -297,6 +389,8 @@ final class NotchController {
         let m = NSEvent.mouseLocation
         let local = NSPoint(x: m.x - panel.frame.minX, y: panel.frame.maxY - m.y)
         // A little slack, and the very top edge of the screen counts as inside.
+        updateDrag()
+        let dragHere = dragFile != nil && dropZone().contains(local)
         let r = islandRect()
         let inside = NSRect(x: r.minX - 2, y: r.minY - 2, width: r.width + 4, height: r.height + 2).contains(local)
 
@@ -312,10 +406,10 @@ final class NotchController {
             }
         }
         // Most urgent first: a permission request, then the chat, then hover.
-        set(approval != nil ? .approval : chatOpen ? chatState : hovering ? .hover : restingState)
+        set(approval != nil ? .approval : dragHere ? .fileOver : chatOpen ? chatState : hovering ? .hover : restingState)
         updateOutline()
 
-        let ignore = !inside
+        let ignore = !inside && !dragHere
         if panel.ignoresMouseEvents != ignore { panel.ignoresMouseEvents = ignore }
     }
 
@@ -380,7 +474,7 @@ final class NotchController {
     /// Comet while Claude works, breathing orange while it waits for you; nothing on hover or at rest.
     private func updateOutline() {
         var o = NotchOutline.none
-        if prefs.notchOutline && model.state == .approval {
+        if prefs.notchOutline && (model.state == .approval || model.state == .fileOver) {
             o = .breathe
         } else if prefs.notchOutline && model.state == .wings {
             switch buddy.mood {

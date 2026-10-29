@@ -74,6 +74,11 @@ final class NotchModel: ObservableObject {
     var onChatSubmit: ((String) -> Void)?
     var onChatClose: (() -> Void)?
     var onOpenChat: (() -> Void)?
+    /// Warning above the answer, e.g. a big file read only in part.
+    @Published var chatNote = ""
+    /// Name and size of the file being dragged over the notch, and whether we can read it.
+    @Published var dragLabel = ""
+    @Published var dragSupported = true
 
     func submitDraft() {
         guard let f = chatField else { return }
@@ -190,6 +195,8 @@ struct NotchRootView: View {
             ChatThinkingContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         case .chatAnswer:
             ChatAnswerContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
+        case .fileOver:
+            FileOverContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         default:
             EmptyView()
         }
@@ -287,6 +294,30 @@ private struct ApprovalContent: View {
         .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 16)
+        .frame(maxHeight: .infinity)
+    }
+}
+
+private struct FileOverContent: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            CrabSprite(buddy: model.buddy, unit: 2, pose: .waving)
+                .frame(width: 28, height: 26)
+            TitleBlock(title: L10n.ui(model.dragSupported ? .fileDropTitle : .fileUnsupported), subtitle: model.dragLabel)
+            Spacer(minLength: 8)
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+                let bob = sin(tl.date.timeIntervalSinceReferenceDate * 4) * 2
+                Image(systemName: model.dragSupported ? "arrow.down" : "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(model.dragSupported ? NotchStyle.orange : NotchStyle.secondary)
+                    .offset(y: model.dragSupported ? CGFloat(bob) : 0)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(NotchStyle.buttonRaised))
+            }
+        }
+        .padding(.horizontal, 18)
         .frame(maxHeight: .infinity)
     }
 }
