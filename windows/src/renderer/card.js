@@ -88,7 +88,10 @@
     const chat = state.view === "chat";
     const thinking = chat && state.phase === "thinking";
     card.classList.toggle("thinking", thinking);
-    $("title").textContent = thinking ? L10n.ui("chatThinking") : state.phase === "input" ? L10n.buddyName : "";
+    $("title").textContent = thinking ? L10n.ui(state.looking ? "screenLooking" : "chatThinking")
+      : state.phase === "input" ? L10n.buddyName : "";
+    $("attach").classList.toggle("on", !!state.attach);
+    $("attach").title = L10n.ui("screenAttach");
     $("subtitle").textContent = state.question || "";
     renderAnswer(state.phase === "answer" ? state.answer : "", state.error);
     $("note").textContent = state.note ? "⚠ " + state.note : "";
@@ -117,6 +120,7 @@
     setTimeout(() => { copy.textContent = L10n.ui("copy"); }, 1500);
   }
   copy.addEventListener("click", copyAnswer);
+  $("attach").addEventListener("click", () => { clawd.send("card-attach"); input.focus(); });
   answer.addEventListener("contextmenu", (e) => { e.preventDefault(); copyAnswer(); });
 
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") clawd.send("card-close"); });

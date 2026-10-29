@@ -70,8 +70,12 @@
         <input type="checkbox" class="switch" data-pref="approvalCard">
       </label>
       <div class="row">
-        <span><span data-i18n="chatHotkey"></span><small class="muted" id="hotkeyHint"></small></span>
-        <button class="key" id="chatHotkey"></button>
+        <span><span data-i18n="chatHotkey"></span><small class="muted" data-hint="chat"></small></span>
+        <button class="key" data-hotkey="chatHotkey" data-slot="chat"></button>
+      </div>
+      <div class="row">
+        <span><span data-i18n="screenHotkey"></span><small class="muted" data-hint="screen"></small></span>
+        <button class="key" data-hotkey="screenHotkey" data-slot="screen"></button>
       </div>
       <label class="row" id="loginRow">
         <span><span data-i18n="launchAtLogin"></span><small class="muted" data-i18n="launchAtLoginHint"></small></span>

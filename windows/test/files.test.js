@@ -63,3 +63,17 @@ test("prepare: refuses what it can't read", () => {
   assert.equal(files.prepare(put("blob2.bin", Buffer.from([0, 0, 0]))), null);
   assert.equal(files.prepare(put("bad.png", "x"), { resizeImage: () => Buffer.alloc(0) }), null);
 });
+
+test("mentionsScreen: questions about the screen, not words that merely contain it", () => {
+  for (const q of ["опиши что ты видишь на экране", "Что у меня на экране?", "что значит ошибка на скрине",
+    "посмотри на мой экран", "what's on my screen", "take a screenshot and explain"]) assert.ok(files.mentionsScreen(q), q);
+  for (const q of ["как экранировать кавычки в bash?", "SwiftUI screen navigation", "что такое git rebase", "splashscreen"])
+    assert.ok(!files.mentionsScreen(q), q);
+});
+
+test("saveScreenshot: a private folder that cleanUp clears", () => {
+  const p = files.saveScreenshot(Buffer.from("jpeg"));
+  assert.match(path.basename(path.dirname(p)), /^ClawdScreen-/);
+  files.cleanUp();
+  assert.equal(fs.existsSync(p), false);
+});

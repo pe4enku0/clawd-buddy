@@ -142,6 +142,9 @@
       approvalCard: "Approve from the crab", approvalCardHint: "Allow or deny Claude's requests without switching windows",
       fileDropTitle: "Drop it, I'll sum it up", fileSummary: "Sum up “%s”",
       fileUnsupported: "I can't read this kind of file. Text, code, .md, .pdf and .png/.jpg images work.",
+      whatsOnScreen: "What's on my screen?", screenQuestion: "What's on my screen?", screenLooking: "Looking at your screen",
+      screenAttach: "Attach a screenshot", screenFailed: "Couldn't take a screenshot. Try again.",
+      screenHotkey: "“What's on screen” shortcut", screenHotkeyHint: "Clawd looks at your screen and sums it up",
     },
     ru: {
       settings: "Настройки…", language: "Язык", hideWhenSleeping: "Прятаться, когда сплю", sayHi: "Поздороваться",
@@ -173,6 +176,9 @@
       approvalCard: "Кнопки подтверждения у краба", approvalCardHint: "Разрешить или отклонить действие, не переключаясь в терминал",
       fileDropTitle: "Отпусти — перескажу", fileSummary: "Перескажи «%s»",
       fileUnsupported: "Такие файлы я не читаю. Подойдут текст, код, .md, .pdf и картинки .png/.jpg.",
+      whatsOnScreen: "Что у меня на экране?", screenQuestion: "Что у меня на экране?", screenLooking: "Смотрю на экран",
+      screenAttach: "Приложить снимок экрана", screenFailed: "Не получилось сделать снимок экрана. Попробуй ещё раз.",
+      screenHotkey: "Хоткей «Что на экране»", screenHotkeyHint: "Краб смотрит на экран и коротко рассказывает",
     },
   };
 

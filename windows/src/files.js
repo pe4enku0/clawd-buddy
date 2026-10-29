@@ -123,12 +123,30 @@ function discard(f) {
   if (f) try { fs.rmSync(path.dirname(f.path), { recursive: true, force: true }); } catch {}
 }
 
-/** Leftovers from a run that quit mid-chat. */
+/** Leftovers (dropped files, screenshots) from a run that quit mid-chat. */
 function cleanUp() {
   const tmp = os.tmpdir();
   for (const n of (() => { try { return fs.readdirSync(tmp); } catch { return []; } })()) {
-    if (n.startsWith(PREFIX)) try { fs.rmSync(path.join(tmp, n), { recursive: true, force: true }); } catch {}
+    if (n.startsWith(PREFIX) || n.startsWith(SCREEN_PREFIX)) try { fs.rmSync(path.join(tmp, n), { recursive: true, force: true }); } catch {}
   }
 }
 
-module.exports = { kind, prepare, discard, cleanUp, pdfPages, sizeText, TEXT_LIMIT };
+const SCREEN_PREFIX = "ClawdScreen-";
+
+/** Saves screenshot JPEG bytes where only this chat will find them; returns the path. */
+function saveScreenshot(bytes) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), SCREEN_PREFIX));
+  const file = path.join(dir, "screen.jpg");
+  fs.writeFileSync(file, bytes);
+  return file;
+}
+
+/**
+ * Does this chat message ask about the screen? Whole words only, so "экранировать" (to escape)
+ * or "SwiftUI screen" don't grab it. Same rule as macos/Sources/ScreenGrab.swift.
+ */
+function mentionsScreen(text) {
+  return /(?<![\p{L}\p{N}_])экран(?:е|а|у|ом)?(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])скрин|(?<![\p{L}\p{N}_])что (?:ты )?видишь|\b(?:my|the|on) screen\b|\bscreenshot|\bwhat (?:do )?you see\b/iu.test(String(text));
+}
+
+module.exports = { kind, prepare, discard, cleanUp, pdfPages, sizeText, saveScreenshot, mentionsScreen, TEXT_LIMIT };

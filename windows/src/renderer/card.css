@@ -87,6 +87,13 @@ body { padding: 14px; user-select: none; -webkit-user-select: none; }
   background: var(--field); color: var(--text); font: 13.5px var(--sans); outline: none;
 }
 .ask input::placeholder { color: var(--muted); }
+.attach {
+  flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--field); cursor: pointer;
+  display: grid; place-items: center; padding: 0;
+}
+.attach svg { width: 15px; height: 15px; fill: none; stroke: var(--text); stroke-width: 1.5; stroke-linecap: round; }
+.attach.on { background: var(--accent); }
+.attach.on svg { stroke: #fff; }
 .send {
   flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--accent);
   color: #fff; font: 700 15px var(--sans); cursor: pointer;

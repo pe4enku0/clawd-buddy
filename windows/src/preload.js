@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const LISTEN = ["hook", "cursor", "prefs", "command", "drag-moved", "hooks-status", "card-state"];
 const SEND = ["ready", "interactive", "drag-start", "show-menu", "settings-height",
-  "card-submit", "card-close", "card-height", "card-copy", "approval-answer", "approval-fits", "file-dropped"];
+  "card-submit", "card-close", "card-height", "card-copy", "approval-answer", "approval-fits", "file-dropped", "card-attach"];
 const INVOKE = ["drag-end", "get-state", "set-pref", "hooks-connect", "hooks-disconnect", "demo", "hotkey-recording"];
 
 contextBridge.exposeInMainWorld("clawd", {

@@ -1,5 +1,6 @@
 // Clawd Buddy for Windows (also runs on macOS/Linux for development).
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, nativeTheme, globalShortcut, clipboard } = require("electron");
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, nativeTheme, globalShortcut, clipboard,
+  desktopCapturer } = require("electron");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
@@ -20,10 +21,13 @@ let prefs, buddy, settingsWin, tray, server;
 let drag = null;          // { cx, cy, wx, wy, moved }
 let manuallyHidden = false;
 let card;
-let hotkeyOk = true;
+let hotkeyOk = { chat: true, screen: true };
+let capturing = false;  // the card hides for a screenshot; that blur mustn't close the chat
 // The chat in the card: one conversation per opening, follow-ups carry it in the prompt.
 // `file` is a dropped file this chat is about, kept for follow-ups and deleted when the chat closes.
-const chat = { open: false, phase: "input", question: "", answer: "", error: false, note: "", history: [], cancel: null, file: null };
+// `screenshot` is the latest picture of the screen in this chat, kept for follow-ups like the file.
+const chat = { open: false, phase: "input", question: "", answer: "", error: false, note: "", history: [], cancel: null,
+  file: null, screenshot: null, attach: false, looking: false };
 // The permission request on the card, if any: { res, title, detail, since, fits, timer }.
 let approval = null;
 const APPROVAL_CARD_MS = 20_000;
@@ -53,7 +57,7 @@ function start() {
     preload: path.join(__dirname, "preload.js"),
     buddyBounds: () => buddy.getBounds(),
     // A click anywhere else closes the chat, like a popover; an approval waits for its buttons.
-    onBlur: () => { if (!approval) closeChat(); },
+    onBlur: () => { if (!approval && !capturing) closeChat(); },
   });
   registerHotkeys();
   createTray();
@@ -173,7 +177,7 @@ function setPref(key, value) {
     prefs.set("anchor", { x: b.x + b.width, y: b.y });
   }
   if (key === "launchAtLogin") applyLoginItem();
-  if (key === "chatHotkey") registerHotkeys();
+  if (key === "chatHotkey" || key === "screenHotkey") registerHotkeys();
   sendToBuddy("prefs", prefs.public);
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send("prefs", prefs.public);
   refreshTray();
@@ -204,7 +208,8 @@ for (const [channel, action] of [["hooks-connect", hooks.install], ["hooks-disco
 
 function registerHotkeys() {
   globalShortcut.unregisterAll();
-  try { hotkeyOk = globalShortcut.register(prefs.get("chatHotkey"), toggleChat); } catch { hotkeyOk = false; }
+  const reg = (accel, fn) => { try { return globalShortcut.register(accel, fn); } catch { return false; } };
+  hotkeyOk = { chat: reg(prefs.get("chatHotkey"), toggleChat), screen: reg(prefs.get("screenHotkey"), describeScreen) };
 }
 
 // The settings page is recording a new shortcut: the old one mustn't fire meanwhile.
@@ -215,7 +220,7 @@ ipcMain.handle("hotkey-recording", (_e, on) => {
 
 const chatState = () => ({
   view: "chat", phase: chat.phase, question: chat.question, answer: chat.answer, error: chat.error,
-  note: chat.note, lang: prefs.get("lang"),
+  note: chat.note, attach: chat.attach, looking: chat.looking, lang: prefs.get("lang"),
 });
 
 /** What the card shows: a permission request first, then the chat. */
@@ -234,7 +239,10 @@ function pushChat() { if (chat.open && !approval) card.send(chatState()); }
 
 function openChat() {
   if (manuallyHidden) toggleVisible();
-  if (!chat.open) Object.assign(chat, { open: true, phase: "input", question: "", answer: "", error: false, note: "", history: [] });
+  if (!chat.open) {
+    Object.assign(chat, { open: true, phase: "input", question: "", answer: "", error: false, note: "", history: [],
+      attach: false, looking: false });
+  }
   refreshCard({ focus: true });
 }
 
@@ -244,8 +252,38 @@ function closeChat() {
   chat.cancel = null;
   chat.open = false;
   files.discard(chat.file);
+  files.discard(chat.screenshot && { path: chat.screenshot });
   chat.file = null;
+  chat.screenshot = null;
   refreshCard();
+}
+
+/** "What's on my screen?" from the hotkey or the menu: opens the chat if needed. */
+function describeScreen() {
+  if (!chat.open) openChat();
+  askChat(L10n.ui("screenQuestion"), null, true);
+}
+
+/** The screen under the cursor as a downscaled JPEG, with the card out of the way. */
+async function grabScreen() {
+  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  capturing = true;
+  card.hide();
+  try {
+    await new Promise((r) => setTimeout(r, 180));
+    const size = { width: Math.round(d.size.width * d.scaleFactor), height: Math.round(d.size.height * d.scaleFactor) };
+    const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: size });
+    const src = sources.find((s) => s.display_id === String(d.id)) || sources[0];
+    if (!src || src.thumbnail.isEmpty()) return null;
+    let img = src.thumbnail;
+    const { width, height } = img.getSize(), k = Math.min(1, 1600 / Math.max(width, height));
+    if (k < 1) img = img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: "good" });
+    return files.saveScreenshot(img.toJPEG(80));
+  } catch {
+    return null;
+  } finally {
+    capturing = false;
+  }
 }
 
 function toggleChat() {
@@ -269,19 +307,45 @@ function chatError(error) {
   }
 }
 
-/** `prompt` replaces the usual one (the file summary request). */
-function askChat(question, prompt = null) {
+/**
+ * `prompt` replaces the usual one (the file summary request). A screenshot goes along when asked
+ * for: the hotkey, the button by the field, or a message that mentions the screen.
+ */
+async function askChat(question, prompt = null, withScreen = false) {
   if (!chat.open || chat.phase === "thinking") return;
+  const wantsScreen = !prompt && (withScreen || chat.attach || files.mentionsScreen(question));
   if (!prompt) chat.note = "";
-  Object.assign(chat, { question, answer: "", error: false, phase: "thinking" });
+  Object.assign(chat, { question, answer: "", error: false, phase: "thinking", attach: false, looking: wantsScreen });
   pushChat();
+  if (wantsScreen) {
+    const shot = await grabScreen();
+    refreshCard({ focus: true });
+    if (!chat.open) { files.discard(shot && { path: shot }); return; }
+    if (!shot) {
+      Object.assign(chat, { answer: L10n.ui("screenFailed"), error: true, phase: "answer" });
+      pushChat();
+      return;
+    }
+    files.discard(chat.screenshot && { path: chat.screenshot });
+    chat.screenshot = shot;
+  }
   let text = prompt || chatPrompt(question);
-  if (!prompt && chat.file) {
-    text = `Earlier the user dropped the file ${chat.file.name} into this chat; it is in the current folder. `
-      + `Read it again if the question needs it.${chat.file.hint}\n\n${text}`;
+  const attached = [];
+  if (chat.file) {
+    attached.push(chat.file.path);
+    if (!prompt) {
+      text = `Earlier the user dropped the file ${chat.file.name} into this chat; it is in the current folder. `
+        + `Read it again if the question needs it.${chat.file.hint}\n\n${text}`;
+    }
+  }
+  if (chat.screenshot) {
+    attached.push(chat.screenshot);
+    text = `The user attached a screenshot of their screen: ${path.basename(chat.screenshot)} in the current folder. `
+      + "Read it before answering. If they only ask what's on screen, describe it in 2-4 sentences: "
+      + `which app, what they're doing, and any error or problem you can see.\n\n${text}`;
   }
   chat.cancel = claude.ask(text, {
-    files: chat.file ? [chat.file.path] : [],
+    files: attached,
     onText: (text) => { Object.assign(chat, { answer: text, phase: "answer" }); pushChat(); },
     onDone: (r) => {
       chat.cancel = null;
@@ -314,7 +378,8 @@ function dropFile(file) {
   chat.cancel?.();
   chat.cancel = null;
   files.discard(chat.file);
-  Object.assign(chat, { file: null, history: [], phase: "input" });
+  files.discard(chat.screenshot && { path: chat.screenshot });
+  Object.assign(chat, { file: null, screenshot: null, history: [], phase: "input" });
   const lang = prefs.get("lang");
   const prepared = files.prepare(file, { lang, resizeImage });
   if (!prepared) {
@@ -340,6 +405,7 @@ ipcMain.on("card-submit", (e, text) => { if (fromCard(e) && typeof text === "str
 ipcMain.on("card-close", (e) => { if (fromCard(e)) closeChat(); });
 ipcMain.on("card-height", (e, h) => { if (fromCard(e) && Number.isFinite(h)) card.setHeight(h); });
 ipcMain.on("card-copy", (e, text) => { if (fromCard(e) && typeof text === "string") clipboard.writeText(text); });
+ipcMain.on("card-attach", (e) => { if (fromCard(e) && chat.open) { chat.attach = !chat.attach; pushChat(); } });
 
 // MARK: Approvals
 
@@ -454,6 +520,7 @@ function menuTemplate() {
     { label: "Clawd Buddy", enabled: false },
     { type: "separator" },
     { label: L10n.ui("askClawd"), accelerator: prefs.get("chatHotkey"), click: openChat },
+    { label: L10n.ui("whatsOnScreen"), accelerator: prefs.get("screenHotkey"), click: describeScreen },
     { label: L10n.ui("settings"), click: openSettings },
     {
       label: L10n.ui("language"),

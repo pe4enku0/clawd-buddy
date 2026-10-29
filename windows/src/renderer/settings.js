@@ -21,9 +21,13 @@
     $("chattiness").style.setProperty("--fill", `${pct}%`);
     $("chattinessValue").textContent = `${pct}%`;
     $("loginRow").hidden = !state.canLaunchAtLogin;
-    if (!recording) $("chatHotkey").textContent = prettyHotkey(prefs.chatHotkey);
-    $("hotkeyHint").textContent = L10n.ui(state.hotkeyOk === false ? "hotkeyTaken" : "chatHotkeyHint");
-    $("hotkeyHint").classList.toggle("warn", state.hotkeyOk === false);
+    for (const b of document.querySelectorAll("[data-hotkey]")) {
+      if (b !== recording) b.textContent = prettyHotkey(prefs[b.dataset.hotkey]);
+      const ok = state.hotkeyOk?.[b.dataset.slot] !== false;
+      const hint = document.querySelector(`[data-hint="${b.dataset.slot}"]`);
+      hint.textContent = L10n.ui(ok ? `${b.dataset.slot}HotkeyHint` : "hotkeyTaken");
+      hint.classList.toggle("warn", !ok);
+    }
 
     $("hooksDot").classList.toggle("ok", hooks.installed);
     $("hooksText").textContent = L10n.ui(hooks.installed ? "hooksOn" : "hooksOff");
@@ -35,7 +39,7 @@
 
   // MARK: Shortcut recorder
 
-  let recording = false;
+  let recording = null;  // the shortcut button that's listening
   const mac = navigator.platform.startsWith("Mac");
   const prettyHotkey = (a) => (a || "").split("+")
     .map((k) => ({ Control: "Ctrl", Super: mac ? "⌘" : "Win", Alt: mac ? "⌥" : "Alt" })[k] || k).join("+");
@@ -50,9 +54,10 @@
   }
 
   async function stopRecording(value) {
-    recording = false;
+    const key = recording?.dataset.hotkey;
+    recording = null;
     window.removeEventListener("keydown", onRecordKey, true);
-    if (value) state.prefs = await clawd.invoke("set-pref", "chatHotkey", value);
+    if (value && key) state.prefs = await clawd.invoke("set-pref", key, value);
     state.hotkeyOk = await clawd.invoke("hotkey-recording", false);
     render();
   }
@@ -65,13 +70,15 @@
     stopRecording(accelerator(e));
   }
 
-  $("chatHotkey").addEventListener("click", async () => {
-    if (recording) { stopRecording(null); return; }
-    recording = true;
-    await clawd.invoke("hotkey-recording", true);
-    $("chatHotkey").textContent = L10n.ui("pressKeys");
-    window.addEventListener("keydown", onRecordKey, true);
-  });
+  for (const b of document.querySelectorAll("[data-hotkey]")) {
+    b.addEventListener("click", async () => {
+      if (recording) { stopRecording(null); return; }
+      recording = b;
+      await clawd.invoke("hotkey-recording", true);
+      b.textContent = L10n.ui("pressKeys");
+      window.addEventListener("keydown", onRecordKey, true);
+    });
+  }
 
   async function setPref(key, value) {
     state.prefs = await clawd.invoke("set-pref", key, value);

@@ -14,6 +14,7 @@ const DEFAULTS = {
   launchAtLogin: true,
   chatHotkey: "Control+Alt+Space", // Electron accelerator; Alt+Space is the window menu on Windows
   approvalCard: true,
+  screenHotkey: "Control+Alt+Shift+Space",
   anchor: null, // top-right corner of the buddy window, in screen DIPs
   firstRunDone: false,
 };
@@ -44,7 +45,7 @@ class Prefs {
   set(key, value) {
     if (!(key in DEFAULTS)) return false;
     if (VALID[key] && !VALID[key].includes(value)) return false;
-    if (key === "chatHotkey" && !isHotkey(value)) return false;
+    if ((key === "chatHotkey" || key === "screenHotkey") && !isHotkey(value)) return false;
     if (typeof DEFAULTS[key] === "boolean") value = !!value;
     if (key === "chattiness") value = Math.min(1, Math.max(0, Number(value) || 0));
     this.data[key] = value;
