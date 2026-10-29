@@ -7,7 +7,8 @@ enum ChatPhase { case input, thinking, answer }
 
 /// Space under the answer text in the answer card: header, gaps, input row and paddings.
 let chatAnswerChrome: CGFloat = 92
-let chatAnswerMaxExtra: CGFloat = 260
+/// The answer card grows with the answer up to this share of the screen; only beyond that it scrolls.
+let chatAnswerScreenShare: CGFloat = 0.7
 
 struct ChatInputContent: View {
     @ObservedObject var model: NotchModel

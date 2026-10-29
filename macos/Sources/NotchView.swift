@@ -28,6 +28,7 @@ enum NotchStyle {
     static let shoulder: CGFloat = 8
     /// Wide enough for the biggest state plus its shoulders and spring overshoot.
     static let canvasWidth: CGFloat = 480
+    /// Minimum room below the cutout; the controller makes it taller for long chat answers.
     static let canvasExtraHeight: CGFloat = 300
     static let outlineWidth: CGFloat = 1.5
 
@@ -72,6 +73,8 @@ final class NotchModel: ObservableObject {
     @Published var chatError = false
     /// Measured height of the answer text; the card grows with it up to a limit.
     @Published var chatAnswerHeight: CGFloat = 0
+    /// How tall the answer card may get below the cutout on this screen.
+    @Published var chatAnswerMaxExtra: CGFloat = 260
     @Published var answerHovered = false
     @Published var copiedAt = Date.distantPast
     /// The next question goes out with a screenshot (the button left of the field).

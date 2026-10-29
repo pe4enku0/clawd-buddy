@@ -529,7 +529,10 @@ final class NotchController {
         model.notchWidth = notchWidth
         model.notchHeight = notchHeight
 
-        let size = NSSize(width: NotchStyle.canvasWidth, height: notchHeight + NotchStyle.canvasExtraHeight)
+        // Long answers get most of the screen so they show in full instead of scrolling.
+        model.chatAnswerMaxExtra = max(260, (f.height * chatAnswerScreenShare - notchHeight).rounded(.down))
+        let extra = max(NotchStyle.canvasExtraHeight, model.chatAnswerMaxExtra + 24)
+        let size = NSSize(width: NotchStyle.canvasWidth, height: notchHeight + extra)
         panel.setFrame(NSRect(x: (centerX - size.width / 2).rounded(), y: f.maxY - size.height,
                               width: size.width, height: size.height), display: true)
     }
