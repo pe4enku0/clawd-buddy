@@ -23,6 +23,7 @@ enum UIText {
     case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal, approvalTooLong
     case chatPlaceholder, chatMore, chatThinking, copy, copied, chatHotkey, chatHotkeyHint, pressKeys
     case fileDropTitle, fileUnsupported, fileUnsupportedLong, fileUnreadable
+    case timeIsUp, snooze, noTimers, timerSound, timerSoundHint
     case screenQuestion, screenLooking, screenHint, screenHintSub, screenNoImage, screenAttach
     case screenHotkey, screenHotkeyHint
 }
@@ -120,6 +121,11 @@ enum L10n {
         case .chatHotkey: return ru ? "Хоткей чата" : "Chat shortcut"
         case .chatHotkeyHint: return ru ? "Открывает чат в чёлке. Нажми и введи новое сочетание" : "Opens chat in the notch. Click, then press new keys"
         case .pressKeys: return ru ? "Нажми сочетание…" : "Press keys…"
+        case .timeIsUp: return ru ? "Время вышло!" : "Time's up!"
+        case .snooze: return ru ? "+5 мин" : "+5 min"
+        case .noTimers: return ru ? "Сейчас таймеров нет." : "No timers running."
+        case .timerSound: return ru ? "Звук таймера" : "Timer sound"
+        case .timerSoundHint: return ru ? "Звучит, когда таймер или напоминание срабатывает" : "Plays when a timer or reminder goes off"
         case .fileDropTitle: return ru ? "Отпусти — перескажу" : "Drop it, I'll sum it up"
         case .fileUnsupported: return ru ? "Такой файл не прочитаю" : "Can't read this one"
         case .fileUnsupportedLong: return ru ? "Такие файлы я не читаю. Подойдут текст, код, .md, .pdf и картинки .png/.jpg."
@@ -147,6 +153,37 @@ enum L10n {
             let name = tool.hasPrefix("mcp__") ? String(tool.split(separator: "_").last ?? "") : tool
             return ru ? "Разрешить «\(name)»?" : "Allow \(name)?"
         }
+    }
+
+    /// Confirmation in the chat after "таймер на 10 минут" / "напомни в 15:30 …".
+    static func timerSet(label: String, duration: TimeInterval?, at: Date) -> String {
+        let clock = TimerFormat.clock(at)
+        if !label.isEmpty { return ru ? "⏱ Напомню «\(label)» в \(clock)." : "⏱ I'll remind you: \u{201C}\(label)\u{201D} at \(clock)." }
+        let len = duration.map(TimerFormat.length) ?? ""
+        return ru ? "⏱ Таймер на \(len), сработает в \(clock)." : "⏱ \(len) timer, rings at \(clock)."
+    }
+
+    /// The name a timer goes by: its label, or "Таймер на 10 мин".
+    static func timerName(_ t: ClawdTimer) -> String {
+        if !t.label.isEmpty { return t.label }
+        guard let d = t.duration else { return ru ? "Будильник" : "Alarm" }
+        return ru ? "Таймер на \(TimerFormat.length(d))" : "\(TimerFormat.length(d)) timer"
+    }
+
+    static func timerCancelled(_ names: [String]) -> String {
+        if names.count == 1 { return ru ? "Отменил: «\(names[0])»." : "Cancelled \u{201C}\(names[0])\u{201D}." }
+        return ru ? "Отменил все таймеры (\(names.count))." : "Cancelled all \(names.count) timers."
+    }
+
+    static func timerList(_ items: [ClawdTimer], now: Date = Date()) -> String {
+        let lines = items.map { "• \(timerName($0)): \(TimerFormat.left($0.fireAt.timeIntervalSince(now))) (\(TimerFormat.clock($0.fireAt)))" }
+        return (ru ? "Сейчас идут:\n" : "Running:\n") + lines.joined(separator: "\n")
+    }
+
+    static func alarmSubtitle(_ t: ClawdTimer, now: Date = Date()) -> String {
+        if now.timeIntervalSince(t.fireAt) > 60 { return (ru ? "Пропущено в " : "Missed at ") + TimerFormat.clock(t.fireAt) }
+        if let d = t.duration { return ru ? "Таймер на \(TimerFormat.length(d))" : "\(TimerFormat.length(d)) timer" }
+        return TimerFormat.clock(t.fireAt)
     }
 
     static func fileSummaryQuestion(_ name: String) -> String {

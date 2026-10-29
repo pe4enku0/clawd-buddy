@@ -105,6 +105,8 @@ private struct SettingsView: View {
                 Divider().overlay(Claude.border)
                 toggle(L10n.ui(.notchApproval), L10n.ui(.notchApprovalHint), $prefs.notchApproval)
                 Divider().overlay(Claude.border)
+                toggle(L10n.ui(.timerSound), L10n.ui(.timerSoundHint), $prefs.timerSound)
+                Divider().overlay(Claude.border)
                 hotkeyRow(L10n.ui(.chatHotkey), L10n.ui(.chatHotkeyHint), id: "chat", key: prefs.chatHotkey) {
                     prefs.chatHotkey = $0
                 }

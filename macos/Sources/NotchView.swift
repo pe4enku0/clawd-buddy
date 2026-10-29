@@ -7,6 +7,8 @@ enum NotchState {
     case wings              // Claude is busy: crab on the left, activity on the right
     case sleeping
     case hover, approval, done, chatInput, chatThinking, chatAnswer, fileOver
+    case timerWings         // nothing else going on, a timer counts down in the right wing
+    case alarm              // a timer or reminder went off
 }
 
 /// What the right wing shows.
@@ -89,6 +91,14 @@ final class NotchModel: ObservableObject {
     var onOpenChat: (() -> Void)?
     /// Warning above the answer, e.g. a big file read only in part.
     @Published var chatNote = ""
+    /// Running timers, soonest first: the wing countdown and the hover list.
+    @Published var timers: [ClawdTimer] = []
+    @Published var alarmTitle = ""
+    @Published var alarmSubtitle = ""
+    @Published var alarmSince = Date.distantPast
+    /// true = snooze 5 minutes, false = done.
+    var onAlarm: ((Bool) -> Void)?
+    var onCancelTimer: ((UUID) -> Void)?
     /// Name and size of the file being dragged over the notch, and whether we can read it.
     @Published var dragLabel = ""
     @Published var dragSupported = true
@@ -111,6 +121,9 @@ final class NotchModel: ObservableObject {
     init(buddy: BuddyView) { self.buddy = buddy }
 
     var size: CGSize {
+        if state == .hover && !timers.isEmpty {
+            return CGSize(width: 360, height: notchHeight + 58 + CGFloat(min(timers.count, 3)) * 30 + 10)
+        }
         if state == .approval {
             // Paddings, title row, gaps and buttons, plus the detail lines and the "too long" note.
             let note = approvalFits ? 0 : 8 + CommandLabel.lineHeight
@@ -128,6 +141,8 @@ final class NotchModel: ObservableObject {
         // At rest the island hides inside the real cutout: shoulders included, it is exactly as wide.
         case .compact: return CGSize(width: n - 2 * NotchStyle.shoulder, height: h)
         case .wings: return CGSize(width: n + 2 * 34, height: h)
+        case .timerWings: return CGSize(width: n + 2 * 46, height: h)
+        case .alarm: return CGSize(width: 340, height: h + 104)
         case .sleeping: return CGSize(width: n + 2 * 26, height: h)
         case .hover, .fileOver: return CGSize(width: 360, height: h + 58)
         case .approval: return CGSize(width: 380, height: h + 110)
@@ -140,7 +155,8 @@ final class NotchModel: ObservableObject {
 
     static func radius(of s: NotchState) -> CGFloat {
         switch s {
-        case .compact, .wings, .sleeping: return 10
+        case .compact, .wings, .sleeping, .timerWings: return 10
+        case .alarm: return 30
         case .hover, .fileOver, .chatThinking: return 26
         case .approval, .chatAnswer, .chatInput: return 30
         case .done: return 24
@@ -193,14 +209,18 @@ struct NotchRootView: View {
                 .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Without the compositing group, clipping to the custom shape turns tinted SF Symbols white.
+        .compositingGroup()
         .clipShape(shape)
     }
 
     @ViewBuilder private var content: some View {
         // Compact content lives only in the wings; expanded content sits below the camera band.
         switch model.state {
-        case .wings, .sleeping:
+        case .wings, .sleeping, .timerWings:
             WingsContent(model: model).transition(.notchContent)
+        case .alarm:
+            AlarmContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         case .hover:
             HoverContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         case .done:
@@ -230,8 +250,18 @@ private struct WingsContent: View {
             CrabSprite(buddy: model.buddy, unit: 1.5)
                 .frame(width: wing, height: model.notchHeight)
             Spacer(minLength: 0)
-            WingIcon(activity: model.activity, since: model.activitySince)
-                .frame(width: wing, height: model.notchHeight)
+            Group {
+                if model.state == .timerWings, let t = model.timers.first {
+                    TimelineView(.periodic(from: Date(), by: 1)) { tl in
+                        Text(TimerFormat.compact(t.fireAt.timeIntervalSince(tl.date)))
+                            .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                            .foregroundColor(NotchStyle.orange)
+                    }
+                } else {
+                    WingIcon(activity: model.activity, since: model.activitySince)
+                }
+            }
+            .frame(width: wing, height: model.notchHeight)
         }
     }
 }
@@ -240,16 +270,22 @@ private struct HoverContent: View {
     @ObservedObject var model: NotchModel
 
     var body: some View {
-        HStack(spacing: 12) {
-            CrabSprite(buddy: model.buddy, unit: 2)
-                .frame(width: 28, height: 26)
-            TitleBlock(title: model.title, subtitle: model.subtitle)
-            Spacer(minLength: 8)
-            CircleButton(symbol: "bubble.left.fill") { model.onOpenChat?() }
-            CircleButton(symbol: "text.viewfinder") { model.onDescribeScreen?() }
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                CrabSprite(buddy: model.buddy, unit: 2)
+                    .frame(width: 28, height: 26)
+                TitleBlock(title: model.title, subtitle: model.subtitle)
+                Spacer(minLength: 8)
+                CircleButton(symbol: "bubble.left.fill") { model.onOpenChat?() }
+                CircleButton(symbol: "text.viewfinder") { model.onDescribeScreen?() }
+            }
+            .frame(height: 58)
+            ForEach(model.timers.prefix(3)) { t in
+                TimerRow(timer: t) { model.onCancelTimer?(t.id) }
+            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
-        .frame(maxHeight: .infinity)
     }
 }
 
@@ -342,6 +378,61 @@ private struct FileOverContent: View {
         }
         .padding(.horizontal, 18)
         .frame(maxHeight: .infinity)
+    }
+}
+
+/// One running timer in the hover card: name, time left, and a cancel button.
+private struct TimerRow: View {
+    let timer: ClawdTimer
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "timer")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(NotchStyle.orange)
+            Text(L10n.timerName(timer))
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            TimelineView(.periodic(from: Date(), by: 1)) { tl in
+                Text(TimerFormat.left(timer.fireAt.timeIntervalSince(tl.date)))
+                    .font(.system(size: 12.5).monospacedDigit())
+                    .foregroundColor(NotchStyle.secondary)
+            }
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(NotchStyle.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(height: 30)
+    }
+}
+
+private struct AlarmContent: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                CrabSprite(buddy: model.buddy, unit: 2, pose: .waving)
+                    .frame(width: 28, height: 26)
+                TitleBlock(title: model.alarmTitle, subtitle: model.alarmSubtitle)
+                Spacer(minLength: 0)
+            }
+            .frame(height: 40)
+            HStack(spacing: 10) {
+                CapsuleButton(title: L10n.ui(.snooze), fill: NotchStyle.buttonRaised, text: .white) { model.onAlarm?(true) }
+                CapsuleButton(title: L10n.ui(.done), fill: NotchStyle.orange, text: .black) { model.onAlarm?(false) }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 14)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

@@ -70,6 +70,11 @@ final class NotchController {
     /// Set while the demo runs: the state it is showing right now.
     private var demoState: NotchState?
     private var demoTimers: [Timer] = []
+    private let timers = Timers()
+    /// The timer whose alarm card is up, and any that went off while it was.
+    private var alarm: ClawdTimer?
+    private var alarmQueue: [ClawdTimer] = []
+    private var alarmSounds: [Timer] = []
     private var observers: [NSObjectProtocol] = []
     private(set) var isShown = false
 
@@ -98,6 +103,12 @@ final class NotchController {
         model.onChatClose = { [weak self] in self?.closeChat() }
         model.onOpenChat = { [weak self] in self?.openChat() }
         model.onDescribeScreen = { [weak self] in self?.describeScreen() }
+        model.onAlarm = { [weak self] in self?.answerAlarm(snooze: $0) }
+        model.onCancelTimer = { [weak self] id in
+            self?.timers.remove(id)
+            self?.syncTimers()
+        }
+        model.timers = timers.items
         applyPrefs()
     }
 
@@ -286,12 +297,104 @@ final class NotchController {
         model.chatError = false
         model.chatLookingAtScreen = wantsScreen
         chatPhase = .thinking
+        if custom == nil, let command = TimerParser.parse(question) {
+            handleTimer(command, question: question)
+            return
+        }
         guard wantsScreen else { run(question, prompt: custom); return }
         grabScreen { [weak self] url in
             guard let self, self.chatOpen else { return }
             self.setScreenshot(url)
             self.run(question, prompt: nil)
         }
+    }
+
+    // MARK: Timers
+
+    /// Timer commands from the chat are handled right here; only phrasing we can't read goes to Claude.
+    private func handleTimer(_ command: TimerCommand, question: String) {
+        switch command {
+        case .set(let at, let label, let duration):
+            setTimer(at: at, label: label, duration: duration)
+        case .cancel(let all):
+            guard let first = timers.items.first else { reply(L10n.ui(.noTimers)); return }
+            let gone = all ? timers.items : [first]
+            gone.forEach { timers.remove($0.id) }
+            syncTimers()
+            reply(L10n.timerCancelled(gone.map(L10n.timerName)))
+        case .list:
+            reply(timers.items.isEmpty ? L10n.ui(.noTimers) : L10n.timerList(timers.items))
+        case .needsHelp:
+            // A TIMER line from Claude becomes a timer; anything else is just its answer.
+            runner.ask(TimerParser.helpPrompt(question), onText: { _ in }, onDone: { [weak self] result in
+                guard let self, self.chatOpen else { return }
+                switch result {
+                case .success(let answer):
+                    if let t = TimerParser.parseHelp(answer) {
+                        self.setTimer(at: t.fireAt, label: t.label, duration: nil)
+                    } else {
+                        self.reply(answer)
+                    }
+                case .failure(let f):
+                    self.fail(f.message)
+                }
+            })
+        }
+    }
+
+    private func setTimer(at: Date, label: String, duration: TimeInterval?) {
+        timers.add(fireAt: at, label: label, duration: duration)
+        syncTimers()
+        reply(L10n.timerSet(label: label, duration: duration, at: at))
+    }
+
+    /// An answer we wrote ourselves, shown like Claude's.
+    private func reply(_ text: String) {
+        model.chatAnswer = text
+        model.chatError = false
+        chatPhase = .answer
+        chatHistory.append((model.chatQuestion, text))
+    }
+
+    private func syncTimers() {
+        if model.timers != timers.items { model.timers = timers.items }
+    }
+
+    /// Fires due timers one card at a time. Runs even while hidden over a full-screen app.
+    private func checkTimers() {
+        let due = timers.popDue()
+        if !due.isEmpty {
+            alarmQueue += due
+            syncTimers()
+        }
+        if alarm == nil, !alarmQueue.isEmpty { presentAlarm(alarmQueue.removeFirst()) }
+    }
+
+    private func presentAlarm(_ t: ClawdTimer) {
+        stopDemo()
+        alarm = t
+        model.alarmTitle = "⏰ " + (t.label.isEmpty ? L10n.ui(.timeIsUp) : t.label)
+        model.alarmSubtitle = L10n.alarmSubtitle(t)
+        model.alarmSince = Date()
+        if prefs.timerSound {
+            // Three chimes, a few seconds apart, unless it's answered first.
+            for delay in [0.0, 4, 8] {
+                let s = Timer(timeInterval: delay, repeats: false) { _ in NSSound(named: "Glass")?.play() }
+                RunLoop.main.add(s, forMode: .common)
+                alarmSounds.append(s)
+            }
+        }
+        checkFullscreen()
+    }
+
+    private func answerAlarm(snooze: Bool) {
+        guard let t = alarm, Date().timeIntervalSince(model.alarmSince) > 0.5 else { return }
+        if snooze { timers.add(fireAt: Date().addingTimeInterval(300), label: t.label, duration: 300) }
+        alarm = nil
+        alarmSounds.forEach { $0.invalidate() }
+        alarmSounds = []
+        syncTimers()
+        checkFullscreen()
     }
 
     private func setScreenshot(_ url: URL?) {
@@ -478,7 +581,18 @@ final class NotchController {
                 self.demoState = .chatAnswer
             }),
             (2.6, { self.model.dragLabel = "README.md"; self.model.dragSupported = true; self.demoState = .fileOver }),
-            (3.0, { self.brain.sleepNow(); self.demoState = .sleeping }),
+            (2.6, {
+                self.model.timers = [ClawdTimer(id: UUID(), label: ru ? "Выпить воды" : "Drink water",
+                                                fireAt: Date().addingTimeInterval(9 * 60 + 41), duration: 600)]
+                self.demoState = .timerWings
+            }),
+            (3.0, {
+                self.model.alarmTitle = "⏰ " + (ru ? "Выпить воды" : "Drink water")
+                self.model.alarmSubtitle = ru ? "Таймер на 10 мин" : "10 min timer"
+                self.model.alarmSince = Date()
+                self.demoState = .alarm
+            }),
+            (3.0, { self.brain.sleepNow(); self.syncTimers(); self.demoState = .sleeping }),
         ]
         var at: TimeInterval = 0
         for (duration, step) in steps {
@@ -501,6 +615,7 @@ final class NotchController {
         demoTimers = []
         guard demoState != nil else { return }
         demoState = nil
+        model.timers = timers.items
         if !chatOpen {
             model.chatQuestion = ""
             model.chatAnswer = ""
@@ -551,6 +666,7 @@ final class NotchController {
         ticks += 1
         if ticks % 30 == 0 { checkFullscreen() }
         syncWithBuddy()
+        checkTimers()
         guard !hiddenForFullscreen else { return }
 
         let m = NSEvent.mouseLocation
@@ -573,7 +689,8 @@ final class NotchController {
             }
         }
         // Most urgent first: a permission request, then the chat, then hover.
-        set(approval != nil ? .approval : dragHere ? .fileOver : demoState ?? (chatOpen ? chatState : hovering ? .hover : restingState))
+        set(approval != nil ? .approval : alarm != nil ? .alarm : dragHere ? .fileOver
+            : demoState ?? (chatOpen ? chatState : hovering ? .hover : restingState))
         updateOutline()
 
         let ignore = !inside && !dragHere
@@ -583,9 +700,10 @@ final class NotchController {
     /// What the island shows when the mouse isn't on it.
     private var restingState: NotchState {
         if let d = doneUntil, Date() < d { return .done }
+        // Claude's work comes first; with nothing going on, a running timer shows its countdown.
         switch buddy.mood {
-        case .idle, .done: return .compact
-        case .sleeping: return prefs.hideWhenSleeping ? .compact : .sleeping
+        case .idle, .done: return timers.items.isEmpty ? .compact : .timerWings
+        case .sleeping: return !timers.items.isEmpty ? .timerWings : prefs.hideWhenSleeping ? .compact : .sleeping
         default: return .wings
         }
     }
@@ -641,7 +759,7 @@ final class NotchController {
     /// Comet while Claude works, breathing orange while it waits for you; nothing on hover or at rest.
     private func updateOutline() {
         var o = NotchOutline.none
-        if prefs.notchOutline && (model.state == .approval || model.state == .fileOver) {
+        if prefs.notchOutline && [.approval, .fileOver, .alarm].contains(model.state) {
             o = .breathe
         } else if prefs.notchOutline && model.state == .wings {
             switch buddy.mood {
@@ -657,7 +775,8 @@ final class NotchController {
 
     private func checkFullscreen() {
         guard isShown, let screen else { return }
-        let hide = prefs.hideInFullscreen && frontmostCoversScreen(screen)
+        // An alarm shows even over a full-screen app.
+        let hide = prefs.hideInFullscreen && alarm == nil && frontmostCoversScreen(screen)
         guard hide != hiddenForFullscreen else { return }
         hiddenForFullscreen = hide
         if hide { closeChat(); set(.compact); panel.ignoresMouseEvents = true }
