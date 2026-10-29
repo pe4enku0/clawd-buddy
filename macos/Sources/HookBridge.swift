@@ -12,6 +12,13 @@ enum HookBridge {
     static func run() {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if json["hook_event_name"] as? String == "PermissionRequest" {
+            // Not worth launching the app for: it couldn't answer in time anyway.
+            if !NSRunningApplication.runningApplications(withBundleIdentifier: Bridge.bundleID).isEmpty {
+                requestApproval(json)
+            }
+            return
+        }
         guard let payload = try? JSONSerialization.data(withJSONObject: normalize(json)) else { return }
         if send(payload) { return }
         if NSRunningApplication.runningApplications(withBundleIdentifier: Bridge.bundleID).isEmpty { launchApp() }
@@ -26,6 +33,38 @@ enum HookBridge {
         guard let port = CFMessagePortCreateRemote(nil, Bridge.portName) else { return false }
         defer { CFMessagePortInvalidate(port) }
         return CFMessagePortSendRequest(port, 0, payload as CFData, 1, 0, nil, nil) == kCFMessagePortSuccess
+    }
+
+    /// Synchronous: waits for the notch buttons. Prints a decision only for an explicit Allow / Deny;
+    /// otherwise prints nothing, so Claude Code asks in the terminal as usual.
+    private static func requestApproval(_ j: [String: Any]) {
+        let tool = j["tool_name"] as? String ?? ""
+        let input = j["tool_input"] as? [String: Any] ?? [:]
+        let decision = ApprovalChannel.ask(ApprovalRequest(tool: tool, detail: approvalDetail(tool: tool, input: input)))
+        let body: [String: Any]
+        switch decision {
+        case .allow: body = ["behavior": "allow"]
+        case .deny: body = ["behavior": "deny", "message": "The user denied this from the Clawd Buddy notch."]
+        case .terminal: return
+        }
+        let out: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": body]]
+        if let data = try? JSONSerialization.data(withJSONObject: out) {
+            FileHandle.standardOutput.write(data)
+        }
+    }
+
+    /// Longer than `detail`: the card has room, and you should see what you're allowing.
+    private static func approvalDetail(tool: String, input: [String: Any]) -> String {
+        switch tool {
+        case "Bash", "PowerShell":
+            let lines = ((input["command"] as? String) ?? "").split(separator: "\n")
+            let first = (lines.first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces)
+            return truncate(lines.count > 1 ? first + " …" : first, 300)
+        case "WebFetch":
+            return truncate((input["url"] as? String) ?? "", 300)
+        default:
+            return detail(tool: tool, input: input)
+        }
     }
 
     static func normalize(_ j: [String: Any]) -> [String: String] {

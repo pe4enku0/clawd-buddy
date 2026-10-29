@@ -33,6 +33,10 @@ def strip_ours:
 
 def our_hooks($cmd): {hooks: [{type: "command", command: $cmd, async: true, timeout: 5}]};
 
+# The notch's Allow / Deny card: this one waits (up to ~25 s) for the answer. No answer, a closed
+# app or any error prints no decision, so Claude Code asks as usual.
+def approval_hook($cmd): {matcher: "*", hooks: [{type: "command", command: $cmd, timeout: 30}]};
+
 strip_ours
 | if $mode == "install" then
     .hooks //= {}
@@ -43,5 +47,6 @@ strip_ours
           else our_hooks($cmd)
           end
         ]))
+    | .hooks.PermissionRequest = ((.hooks.PermissionRequest // []) + [approval_hook($cmd)])
   else .
   end

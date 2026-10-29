@@ -56,6 +56,54 @@ final class NotchCrabView: NSView {
     }
 }
 
+/// Wide pill button: dark for secondary actions, orange with black text for the main one.
+struct CapsuleButton: View {
+    let title: String
+    let fill: Color
+    let text: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(text)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .background(Capsule().fill(fill))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Time left before the card folds away; clicking it hands the question back to the terminal.
+struct CountdownRing: View {
+    let since: Date
+    let duration: TimeInterval
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+                let left = max(0, 1 - tl.date.timeIntervalSince(since) / duration)
+                ZStack {
+                    Circle().stroke(NotchStyle.buttonRaised, lineWidth: 3)
+                    Circle()
+                        .trim(from: 0, to: left)
+                        .stroke(NotchStyle.orange, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: "terminal")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(NotchStyle.secondary)
+                }
+                .frame(width: 28, height: 28)
+                .contentShape(Circle())
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// easeOutBack from 0 to 1 over 0.35 s: a little overshoot, like a pop.
 func popScale(_ t: TimeInterval, delay: TimeInterval = 0) -> CGFloat {
     let x = min(max((t - delay) / 0.35, 0), 1) - 1

@@ -57,6 +57,11 @@ final class NotchModel: ObservableObject {
     @Published var subtitle = ""
     @Published var doneStats = ""
     @Published var doneAt = Date.distantPast
+    @Published var approvalTitle = ""
+    @Published var approvalDetail = ""
+    @Published var approvalSince = Date.distantPast
+    /// Buttons on the approval card; the controller decides what a click may do.
+    var onApprovalAnswer: ((ApprovalDecision) -> Void)?
 
     init(buddy: BuddyView) { self.buddy = buddy }
 
@@ -144,6 +149,8 @@ struct NotchRootView: View {
             HoverContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         case .done:
             DoneContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
+        case .approval:
+            ApprovalContent(model: model).padding(.top, model.notchHeight).transition(.notchContent)
         default:
             EmptyView()
         }
@@ -200,6 +207,47 @@ private struct DoneContent: View {
                 .overlay(Confetti(start: model.doneAt).frame(width: 110, height: 70).allowsHitTesting(false))
         }
         .padding(.horizontal, 18)
+        .frame(maxHeight: .infinity)
+    }
+}
+
+private struct ApprovalContent: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                CrabSprite(buddy: model.buddy, unit: 2)
+                    .frame(width: 28, height: 26)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.approvalTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(NotchStyle.title)
+                        .lineLimit(1)
+                    Text(model.approvalDetail)
+                        .font(.system(size: 12.5, design: .monospaced))
+                        .foregroundColor(NotchStyle.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                CountdownRing(since: model.approvalSince, duration: ApprovalChannel.cardSeconds) {
+                    model.onApprovalAnswer?(.terminal)
+                }
+                .help(L10n.ui(.answerInTerminal))
+            }
+            HStack(spacing: 10) {
+                CapsuleButton(title: L10n.ui(.deny), fill: NotchStyle.buttonRaised, text: .white) {
+                    model.onApprovalAnswer?(.deny)
+                }
+                CapsuleButton(title: L10n.ui(.allow), fill: NotchStyle.orange, text: .black) {
+                    model.onApprovalAnswer?(.allow)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 16)
         .frame(maxHeight: .infinity)
     }
 }

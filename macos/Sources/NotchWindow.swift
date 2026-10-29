@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// Clicks on a panel that never becomes key must still reach the buttons on the first try.
+private final class NotchHostingView: NSHostingView<NotchRootView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 private final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -23,6 +28,8 @@ final class NotchController {
     private var hovering = false
     private var lastMood: Mood?
     private var doneUntil: Date?
+    private var approval: ApprovalTicket?
+    private var approvalTimer: Timer?
     private var hiddenForFullscreen = false
     private var observers: [NSObjectProtocol] = []
     private(set) var isShown = false
@@ -41,7 +48,8 @@ final class NotchController {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.ignoresMouseEvents = true
-        panel.contentView = NSHostingView(rootView: NotchRootView(model: model))
+        panel.contentView = NotchHostingView(rootView: NotchRootView(model: model))
+        model.onApprovalAnswer = { [weak self] in self?.answerApproval($0) }
         applyPrefs()
     }
 
@@ -81,6 +89,7 @@ final class NotchController {
             NotificationCenter.default.removeObserver($0)
         }
         observers = []
+        dismissApproval()
         panel.orderOut(nil)
         hovering = false
         doneUntil = nil
@@ -99,6 +108,48 @@ final class NotchController {
     func set(_ state: NotchState) {
         guard state != model.state else { return }
         withAnimation(NotchStyle.spring) { model.state = state }
+    }
+
+    // MARK: Approval
+
+    /// Drops the card down for a permission request. Returns false (and the caller answers
+    /// "terminal") when it can't be shown right now.
+    func presentApproval(_ ticket: ApprovalTicket) -> Bool {
+        guard isShown, !hiddenForFullscreen, approval == nil else { return false }
+        approval = ticket
+        model.approvalTitle = L10n.approvalTitle(tool: ticket.request.tool)
+        model.approvalDetail = ticket.request.detail
+        model.approvalSince = Date()
+        // Answered in the terminal / editor, or Claude Code gave up on the hook.
+        ticket.onHangup = { [weak self] in self?.closeApproval() }
+        brain.handle(["event": "Notification", "kind": "permission_prompt"])
+
+        // Not answered in time: fold away; the outline keeps breathing and the terminal decides.
+        let t = Timer(timeInterval: ApprovalChannel.cardSeconds, repeats: false) { [weak self] _ in
+            self?.answerApproval(.terminal)
+        }
+        RunLoop.main.add(t, forMode: .common)
+        approvalTimer = t
+        set(.approval)
+        return true
+    }
+
+    /// Hands any open request back to the terminal (e.g. the turn ended meanwhile).
+    func dismissApproval() { answerApproval(.terminal) }
+
+    private func answerApproval(_ decision: ApprovalDecision) {
+        guard let ticket = approval else { return }
+        // A card that just dropped under a moving pointer shouldn't catch a stray click.
+        if decision != .terminal && Date().timeIntervalSince(model.approvalSince) < 0.7 { return }
+        ticket.answer(decision)
+        closeApproval()
+        if decision != .terminal { brain.permissionAnswered() }
+    }
+
+    private func closeApproval() {
+        approval = nil
+        approvalTimer?.invalidate()
+        approvalTimer = nil
     }
 
     // MARK: Geometry
@@ -160,7 +211,7 @@ final class NotchController {
                 outsideSince = Date()
             }
         }
-        set(hovering ? .hover : restingState)
+        set(approval != nil ? .approval : hovering ? .hover : restingState)
         updateOutline()
 
         let ignore = !inside
@@ -228,7 +279,9 @@ final class NotchController {
     /// Comet while Claude works, breathing orange while it waits for you; nothing on hover or at rest.
     private func updateOutline() {
         var o = NotchOutline.none
-        if prefs.notchOutline && model.state == .wings {
+        if prefs.notchOutline && model.state == .approval {
+            o = .breathe
+        } else if prefs.notchOutline && model.state == .wings {
             switch buddy.mood {
             case .writing, .reading, .searching, .running, .web, .agent, .thinking: o = .comet
             case .waiting: o = .breathe

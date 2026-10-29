@@ -35,12 +35,12 @@ query() { # json, filter
   printf '%s' "$1" | jq -r "$2"
 }
 
-# 1. A bare settings file gets all six events, and only tool events carry a matcher.
+# 1. A bare settings file gets all seven events, and only tool events carry a matcher.
 printf '{}' > "$tmp/empty.json"
 installed=$(apply install "$tmp/empty.json")
 check "install wires every event" \
   "$(query "$installed" '.hooks | keys | sort | join(",")')" \
-  "Notification,PostToolUseFailure,PreToolUse,SessionStart,Stop,UserPromptSubmit"
+  "Notification,PermissionRequest,PostToolUseFailure,PreToolUse,SessionStart,Stop,UserPromptSubmit"
 check "install sets a matcher on tool events" \
   "$(query "$installed" '.hooks.PreToolUse[0].matcher')" "*"
 check "install leaves lifecycle events without a matcher" \
@@ -49,6 +49,11 @@ check "install points at the app binary" \
   "$(query "$installed" '.hooks.Stop[0].hooks[0].command')" "$CMD"
 check "install keeps the hook in the background" \
   "$(query "$installed" '.hooks.Stop[0].hooks[0].async')" "true"
+check "the approval hook waits for the notch" \
+  "$(query "$installed" '.hooks.PermissionRequest[0].hooks[0] | [has("async"), .timeout, .command] | @json')" \
+  "[false,30,$(printf '%s' "$CMD" | jq -R .)]"
+check "the approval hook matches every tool" \
+  "$(query "$installed" '.hooks.PermissionRequest[0].matcher')" "*"
 
 # 2. Installing twice must not append a second copy.
 printf '%s' "$installed" > "$tmp/installed.json"

@@ -20,7 +20,7 @@ enum UIText {
     case chattiness, chattinessHint, idleChatter, idleChatterHint, followMouse, followMouseHint, hideWhenSleepingHint
     case hooks, hooksOn, hooksOff, hooksHint, footer
     case mode, modeCorner, modeNotch, hideInFullscreen, hideInFullscreenHint, notchOutline, notchOutlineHint
-    case done
+    case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal
 }
 
 enum L10n {
@@ -102,6 +102,23 @@ enum L10n {
         case .notchOutline: return ru ? "Обводка во время работы" : "Glow while working"
         case .notchOutlineHint: return ru ? "Огонёк бежит по краю чёлки, пока Claude работает" : "A light runs around the notch while Claude works"
         case .done: return ru ? "Готово" : "Done"
+        case .notchApproval: return ru ? "Кнопки подтверждения в чёлке" : "Approve from the notch"
+        case .notchApprovalHint: return ru ? "Разрешить или отклонить действие, не переключаясь в терминал" : "Allow or deny Claude's requests without switching windows"
+        case .allow: return ru ? "Разрешить" : "Allow"
+        case .deny: return ru ? "Отклонить" : "Deny"
+        case .answerInTerminal: return ru ? "Отвечу в терминале" : "I'll answer in the terminal"
+        }
+    }
+
+    /// Card title when Claude Code asks for permission.
+    static func approvalTitle(tool: String) -> String {
+        switch tool {
+        case "Bash", "PowerShell": return ru ? "Разрешить команду?" : "Allow this command?"
+        case "Edit", "MultiEdit", "Write", "NotebookEdit": return ru ? "Разрешить правку?" : "Allow this edit?"
+        case "WebFetch", "WebSearch": return ru ? "Разрешить доступ в интернет?" : "Allow web access?"
+        default:
+            let name = tool.hasPrefix("mcp__") ? String(tool.split(separator: "_").last ?? "") : tool
+            return ru ? "Разрешить «\(name)»?" : "Allow \(name)?"
         }
     }
 

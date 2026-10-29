@@ -96,6 +96,14 @@ final class Brain {
         }
     }
 
+    /// The user allowed or denied from the notch: stop waving and get back to work.
+    func permissionAnswered() {
+        view.hideBubble()
+        bubbleHideAt = nil
+        pending = nil
+        set(turnActive ? .thinking : .idle)
+    }
+
     private func toolStarted(_ tool: String, _ detail: String) {
         let m = mood(for: tool)
         set(m)

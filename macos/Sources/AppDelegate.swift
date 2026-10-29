@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: BuddyPanel!
     private var view: BuddyView!
     private var notch: NotchController!
+    private let approvals = ApprovalServer()
     private var brain: Brain!
     private var statusItem: NSStatusItem!
     private var settings: SettingsWindowController?
@@ -48,6 +49,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = NSView(frame: NSRect(origin: .zero, size: panelSize))
         panel.contentView?.addSubview(view)
         notch = NotchController(prefs: prefs, brain: brain, buddy: view)
+        approvals.onRequest = { [weak self] ticket in
+            guard let self, self.prefs.mode == .notch, self.prefs.notchApproval,
+                  self.notch.presentApproval(ticket) else { ticket.answer(.terminal); return }
+        }
+        approvals.start()
         applyPrefs()
         placePanel()
         applyMode()
@@ -72,6 +78,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         brain.greet()
     }
 
+    /// The turn moved on without the card: let the terminal have it.
+    private func handleHook(_ info: [String: String]) {
+        if ["Stop", "UserPromptSubmit"].contains(info["event"] ?? "") { notch.dismissApproval() }
+        brain.handle(info)
+    }
+
     /// Hook events arrive from `ClawdBuddy hook` over a local Mach port (see HookBridge).
     private func listenForHooks() {
         var context = CFMessagePortContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
@@ -79,13 +91,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let callback: CFMessagePortCallBack = { _, _, data, info in
             guard let info, let data = data as Data?,
                   let event = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else { return nil }
-            Unmanaged<AppDelegate>.fromOpaque(info).takeUnretainedValue().brain.handle(event)
+            Unmanaged<AppDelegate>.fromOpaque(info).takeUnretainedValue().handleHook(event)
             return nil
         }
         guard let port = CFMessagePortCreateLocal(nil, Bridge.portName, callback, &context, nil) else { return }
         hookPort = port
         CFRunLoopAddSource(CFRunLoopGetMain(), CFMessagePortCreateRunLoopSource(nil, port, 0), .commonModes)
     }
+
+    func applicationWillTerminate(_ notification: Notification) { approvals.stop() }
 
     private func tick() {
         let local = view.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)

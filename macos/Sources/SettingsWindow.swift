@@ -101,6 +101,8 @@ private struct SettingsView: View {
                 toggle(L10n.ui(.hideInFullscreen), L10n.ui(.hideInFullscreenHint), $prefs.hideInFullscreen)
                 Divider().overlay(Claude.border)
                 toggle(L10n.ui(.notchOutline), L10n.ui(.notchOutlineHint), $prefs.notchOutline)
+                Divider().overlay(Claude.border)
+                toggle(L10n.ui(.notchApproval), L10n.ui(.notchApprovalHint), $prefs.notchApproval)
             }
 
             section(L10n.ui(.claudeCode)) {
