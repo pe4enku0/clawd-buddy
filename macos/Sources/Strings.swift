@@ -23,6 +23,8 @@ enum UIText {
     case done, notchApproval, notchApprovalHint, allow, deny, answerInTerminal
     case chatPlaceholder, chatMore, chatThinking, copy, copied, chatHotkey, chatHotkeyHint, pressKeys
     case fileDropTitle, fileUnsupported, fileUnsupportedLong, fileUnreadable
+    case screenQuestion, screenLooking, screenHint, screenHintSub, screenNoImage, screenAttach
+    case screenHotkey, screenHotkeyHint
 }
 
 enum L10n {
@@ -122,6 +124,15 @@ enum L10n {
         case .fileUnsupportedLong: return ru ? "Такие файлы я не читаю. Подойдут текст, код, .md, .pdf и картинки .png/.jpg."
             : "I can't read this kind of file. Text, code, .md, .pdf and .png/.jpg images work."
         case .fileUnreadable: return ru ? "Не получилось открыть файл." : "Couldn't open that file."
+        case .screenQuestion: return ru ? "Что у меня на экране?" : "What's on my screen?"
+        case .screenLooking: return ru ? "Смотрю на экран…" : "Looking at your screen…"
+        case .screenHint: return ru ? "Нажми ⌘⌃⇧4 и выдели область" : "Press ⌘⌃⇧4 and select an area"
+        case .screenHintSub: return ru ? "Заберу картинку из буфера обмена" : "I'll pick it up from the clipboard"
+        case .screenNoImage: return ru ? "Картинка так и не появилась. Нажми ⌘⌃⇧4, выдели область и спроси ещё раз."
+            : "No picture arrived. Press ⌘⌃⇧4, select an area, then ask again."
+        case .screenAttach: return ru ? "Приложить снимок экрана" : "Attach a screenshot"
+        case .screenHotkey: return ru ? "Хоткей «Что на экране»" : "\u{201C}What's on screen\u{201D} shortcut"
+        case .screenHotkeyHint: return ru ? "Краб смотрит на экран и коротко рассказывает" : "Clawd looks at your screen and sums it up"
         }
     }
 

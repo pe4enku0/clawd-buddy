@@ -70,6 +70,12 @@ final class NotchModel: ObservableObject {
     @Published var chatAnswerHeight: CGFloat = 0
     @Published var answerHovered = false
     @Published var copiedAt = Date.distantPast
+    /// The next question goes out with a screenshot (the button left of the field).
+    @Published var chatAttachScreen = false
+    @Published var chatLookingAtScreen = false
+    /// No Screen Recording: waiting for a ⌘⌃⇧4 picture on the clipboard.
+    @Published var chatAwaitingClip = false
+    var onDescribeScreen: (() -> Void)?
     weak var chatField: NSTextField?
     var onChatSubmit: ((String) -> Void)?
     var onChatClose: (() -> Void)?
@@ -228,7 +234,7 @@ private struct HoverContent: View {
             TitleBlock(title: model.title, subtitle: model.subtitle)
             Spacer(minLength: 8)
             CircleButton(symbol: "bubble.left.fill") { model.onOpenChat?() }
-            CircleButton(symbol: "text.viewfinder")
+            CircleButton(symbol: "text.viewfinder") { model.onDescribeScreen?() }
         }
         .padding(.horizontal, 18)
         .frame(maxHeight: .infinity)

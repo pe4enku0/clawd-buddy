@@ -108,6 +108,10 @@ private struct SettingsView: View {
                 hotkeyRow(L10n.ui(.chatHotkey), L10n.ui(.chatHotkeyHint), id: "chat", key: prefs.chatHotkey) {
                     prefs.chatHotkey = $0
                 }
+                Divider().overlay(Claude.border)
+                hotkeyRow(L10n.ui(.screenHotkey), L10n.ui(.screenHotkeyHint), id: "screen", key: prefs.screenHotkey) {
+                    prefs.screenHotkey = $0
+                }
             }
 
             section(L10n.ui(.claudeCode)) {

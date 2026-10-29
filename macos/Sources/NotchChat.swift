@@ -44,10 +44,11 @@ struct ChatThinkingContent: View {
             }
             .frame(width: 30, height: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.ui(.chatThinking))
+                Text(L10n.ui(model.chatAwaitingClip ? .screenHint : model.chatLookingAtScreen ? .screenLooking : .chatThinking))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(NotchStyle.title)
-                Text(model.chatQuestion)
+                    .lineLimit(1)
+                Text(model.chatAwaitingClip ? L10n.ui(.screenHintSub) : model.chatQuestion)
                     .font(.system(size: 12.5))
                     .foregroundColor(NotchStyle.secondary)
                     .lineLimit(1)
@@ -143,6 +144,15 @@ struct ChatInputRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            Button { model.chatAttachScreen.toggle() } label: {
+                Image(systemName: "text.viewfinder")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(model.chatAttachScreen ? .black : .white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(model.chatAttachScreen ? NotchStyle.orange : NotchStyle.buttonRaised))
+            }
+            .buttonStyle(.plain)
+            .help(L10n.ui(.screenAttach))
             ChatField(model: model, placeholder: placeholder)
                 .frame(height: 20)
                 .padding(.horizontal, 14)

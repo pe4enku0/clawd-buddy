@@ -63,6 +63,9 @@ final class NotchController {
     private lazy var dragBaseline = dragPasteboard.changeCount
     /// A file is being dragged somewhere on screen (left button down, files on the drag pasteboard).
     private var dragFile: URL?
+    /// The latest screenshot of this chat, kept for follow-ups and deleted when the chat closes.
+    private var screenshot: URL?
+    private var clipWatch: Timer?
     private var hiddenForFullscreen = false
     private var observers: [NSObjectProtocol] = []
     private(set) var isShown = false
@@ -91,6 +94,7 @@ final class NotchController {
         model.onChatSubmit = { [weak self] in self?.ask($0) }
         model.onChatClose = { [weak self] in self?.closeChat() }
         model.onOpenChat = { [weak self] in self?.openChat() }
+        model.onDescribeScreen = { [weak self] in self?.describeScreen() }
         applyPrefs()
     }
 
@@ -213,8 +217,9 @@ final class NotchController {
         panel.allowsKey = true
         panel.makeKey()
         // A click anywhere else closes it, like a popover. Mouse monitors need no permission.
+        // Not while the user drags out a ⌘⌃⇧4 selection for us.
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.closeChat()
+            if self?.model.chatAwaitingClip != true { self?.closeChat() }
         }
     }
 
@@ -224,6 +229,9 @@ final class NotchController {
         runner.cancel()
         FileDrop.discard(chatFile)
         chatFile = nil
+        stopClipWatch()
+        setScreenshot(nil)
+        model.chatAttachScreen = false
         if let m = clickMonitor { NSEvent.removeMonitor(m) }
         clickMonitor = nil
         model.chatField = nil
@@ -247,22 +255,94 @@ final class NotchController {
         }
     }
 
-    /// `prompt` replaces the usual one (the file summary request).
-    private func ask(_ question: String, prompt custom: String? = nil) {
+    /// "What's on my screen?" from the hotkey or the hover button: opens the chat if needed.
+    func describeScreen() {
+        if !chatOpen { openChat() }
+        guard chatOpen else { return }
+        ask(L10n.ui(.screenQuestion), withScreen: true)
+    }
+
+    /// `prompt` replaces the usual one (the file summary request). A screenshot goes along when asked
+    /// for: the hotkey, the button by the field, or a message that mentions the screen.
+    private func ask(_ question: String, prompt custom: String? = nil, withScreen: Bool = false) {
         guard chatOpen, chatPhase != .thinking else { return }
+        let wantsScreen = custom == nil && (withScreen || model.chatAttachScreen || ScreenGrab.mentionsScreen(question))
+        model.chatAttachScreen = false
+        if custom == nil { model.chatNote = "" }
+        model.chatQuestion = question
+        model.chatAnswer = ""
+        model.chatError = false
+        model.chatLookingAtScreen = wantsScreen
+        chatPhase = .thinking
+        guard wantsScreen else { run(question, prompt: custom); return }
+        grabScreen { [weak self] url in
+            guard let self, self.chatOpen else { return }
+            self.setScreenshot(url)
+            self.run(question, prompt: nil)
+        }
+    }
+
+    private func setScreenshot(_ url: URL?) {
+        if let old = screenshot, old != url { try? FileManager.default.removeItem(at: old) }
+        screenshot = url
+    }
+
+    /// Silent capture when allowed; otherwise ask once for permission and fall back to ⌘⌃⇧4.
+    /// Calls back only with a picture; failures end up as the answer text.
+    private func grabScreen(_ completion: @escaping (URL) -> Void) {
+        if ScreenGrab.hasAccess {
+            ScreenGrab.capture { [weak self] url in
+                if let url { completion(url) } else { self?.waitForClipboard(completion) }
+            }
+        } else {
+            ScreenGrab.requestAccessOnce()
+            waitForClipboard(completion)
+        }
+    }
+
+    private func waitForClipboard(_ completion: @escaping (URL) -> Void) {
+        guard chatOpen else { return }
+        model.chatAwaitingClip = true
+        let pb = NSPasteboard.general
+        let start = pb.changeCount, deadline = Date().addingTimeInterval(60)
+        let t = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if pb.changeCount != start, let url = ScreenGrab.fromPasteboard(pb) {
+                self.stopClipWatch()
+                completion(url)
+            } else if Date() > deadline {
+                self.stopClipWatch()
+                self.fail(L10n.ui(.screenNoImage))
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        clipWatch = t
+    }
+
+    private func stopClipWatch() {
+        clipWatch?.invalidate()
+        clipWatch = nil
+        model.chatAwaitingClip = false
+    }
+
+    /// Sends the question with whatever this chat is about: a dropped file, the latest screenshot.
+    private func run(_ question: String, prompt custom: String?) {
         var prompt = custom ?? Self.chatPrompt(history: chatHistory, question: question)
-        if custom == nil {
-            model.chatNote = ""
-            if let f = chatFile {
+        var files: [URL] = []
+        if let f = chatFile {
+            files.append(f.url)
+            if custom == nil {
                 prompt = "Earlier the user dropped the file \(f.name) into this chat; it is in the current folder. "
                     + "Read it again if the question needs it.\(f.hint)\n\n" + prompt
             }
         }
-        model.chatQuestion = question
-        model.chatAnswer = ""
-        model.chatError = false
-        chatPhase = .thinking
-        runner.ask(prompt, files: chatFile.map { [$0.url] } ?? [], onText: { [weak self] partial in
+        if let shot = screenshot {
+            files.append(shot)
+            prompt = "The user attached a screenshot of their screen: \(shot.lastPathComponent) in the current folder. "
+                + "Read it before answering. If they only ask what's on screen, describe it in 2-4 sentences: "
+                + "which app, what they're doing, and any error or problem you can see.\n\n" + prompt
+        }
+        runner.ask(prompt, files: files, onText: { [weak self] partial in
             guard let self, self.chatOpen else { return }
             self.model.chatAnswer = partial
             self.chatPhase = .answer
@@ -298,6 +378,7 @@ final class NotchController {
         runner.cancel()
         FileDrop.discard(chatFile)
         chatFile = nil
+        setScreenshot(nil)
         chatHistory = []
         chatPhase = .input
         guard let file = FileDrop.prepare(url) else {

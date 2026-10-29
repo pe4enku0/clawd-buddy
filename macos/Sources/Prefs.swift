@@ -34,6 +34,7 @@ final class Prefs: ObservableObject {
     @Published var notchOutline: Bool { didSet { d.set(notchOutline, forKey: "notchOutline") } }
     @Published var notchApproval: Bool { didSet { d.set(notchApproval, forKey: "notchApproval") } }
     @Published var chatHotkey: Hotkey { didSet { save(chatHotkey, "chatHotkey") } }
+    @Published var screenHotkey: Hotkey { didSet { save(screenHotkey, "screenHotkey") } }
 
     /// Top-right corner of the buddy window, so it stays put when the size changes.
     var anchor: NSPoint? {
@@ -60,6 +61,7 @@ final class Prefs: ObservableObject {
         notchOutline = d.object(forKey: "notchOutline") as? Bool ?? true
         notchApproval = d.object(forKey: "notchApproval") as? Bool ?? true
         chatHotkey = Self.load("chatHotkey", d) ?? .chatDefault
+        screenHotkey = Self.load("screenHotkey", d) ?? .screenDefault
         L10n.lang = lang
     }
 

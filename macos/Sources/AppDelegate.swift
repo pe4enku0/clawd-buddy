@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var manuallyHidden = false
     private var hookPort: CFMessagePort?
     private var registeredChatKey: Hotkey?
+    private var registeredScreenKey: Hotkey?
 
     private var panelSize: NSSize {
         let s = prefs.size.scale
@@ -56,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         approvals.start()
         FileDrop.cleanUp()
+        ScreenGrab.cleanUp()
         applyPrefs()
         placePanel()
         applyMode()
@@ -151,6 +153,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if chatKey != registeredChatKey {
             registeredChatKey = chatKey
             HotKeys.shared.set(1, chatKey) { [weak self] in self?.notch.toggleChat() }
+        }
+        let screenKey = island ? prefs.screenHotkey : nil
+        if screenKey != registeredScreenKey {
+            registeredScreenKey = screenKey
+            HotKeys.shared.set(2, screenKey) { [weak self] in self?.notch.describeScreen() }
         }
     }
 

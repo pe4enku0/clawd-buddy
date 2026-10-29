@@ -8,6 +8,8 @@ struct Hotkey: Equatable {
     var display: String
 
     static let chatDefault = Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), display: "⌥Space")
+    static let screenDefault = Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey | shiftKey),
+                                      display: "⌥⇧Space")
 
     /// From a key press in the recorder; nil without ⌘/⌥/⌃ (a bare key would hijack typing).
     init?(event: NSEvent) {
