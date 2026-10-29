@@ -12,6 +12,7 @@ const DEFAULTS = {
   followMouse: true,
   hideWhenSleeping: false,
   launchAtLogin: true,
+  chatHotkey: "Control+Alt+Space", // Electron accelerator; Alt+Space is the window menu on Windows
   anchor: null, // top-right corner of the buddy window, in screen DIPs
   firstRunDone: false,
 };
@@ -21,6 +22,13 @@ const VALID = {
   bubbleStyle: ["pixel", "claude"],
   size: ["small", "medium", "large"],
 };
+
+/** A global shortcut with Ctrl, Alt or Win in it, so it can't hijack plain typing. */
+function isHotkey(v) {
+  return typeof v === "string" && v.length < 60
+    && /^(?:(?:Control|Alt|Shift|Super)\+)+(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Up|Down|Left|Right)$/.test(v)
+    && /(?:Control|Alt|Super)\+/.test(v);
+}
 
 class Prefs {
   constructor(dir) {
@@ -35,6 +43,7 @@ class Prefs {
   set(key, value) {
     if (!(key in DEFAULTS)) return false;
     if (VALID[key] && !VALID[key].includes(value)) return false;
+    if (key === "chatHotkey" && !isHotkey(value)) return false;
     if (typeof DEFAULTS[key] === "boolean") value = !!value;
     if (key === "chattiness") value = Math.min(1, Math.max(0, Number(value) || 0));
     this.data[key] = value;
@@ -67,4 +76,4 @@ class Prefs {
   }
 }
 
-module.exports = { Prefs };
+module.exports = { Prefs, isHotkey };

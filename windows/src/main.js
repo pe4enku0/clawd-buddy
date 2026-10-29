@@ -1,10 +1,12 @@
 // Clawd Buddy for Windows (also runs on macOS/Linux for development).
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, nativeTheme } = require("electron");
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, nativeTheme, globalShortcut, clipboard } = require("electron");
 const http = require("http");
 const path = require("path");
 const { L10n } = require("./renderer/strings.js");
 const hooks = require("./hooks");
 const { Prefs } = require("./prefs");
+const { Card } = require("./card");
+const claude = require("./claude");
 
 const BASE = { w: 380, h: 136 };
 const SCALE = { small: 2 / 3, medium: 1, large: 4 / 3 };
@@ -15,6 +17,10 @@ const isMac = process.platform === "darwin";
 let prefs, buddy, settingsWin, tray, server;
 let drag = null;          // { cx, cy, wx, wy, moved }
 let manuallyHidden = false;
+let card;
+let hotkeyOk = true;
+// The chat in the card: one conversation per opening, follow-ups carry it in the prompt.
+const chat = { open: false, phase: "input", question: "", answer: "", error: false, history: [], cancel: null };
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -36,6 +42,12 @@ function start() {
   applyLoginItem();
 
   createBuddy();
+  card = new Card({
+    preload: path.join(__dirname, "preload.js"),
+    buddyBounds: () => buddy.getBounds(),
+    onBlur: closeChat,  // a click anywhere else closes it, like a popover
+  });
+  registerHotkeys();
   createTray();
   startServer();
   setInterval(pollCursor, 33);
@@ -153,6 +165,7 @@ function setPref(key, value) {
     prefs.set("anchor", { x: b.x + b.width, y: b.y });
   }
   if (key === "launchAtLogin") applyLoginItem();
+  if (key === "chatHotkey") registerHotkeys();
   sendToBuddy("prefs", prefs.public);
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send("prefs", prefs.public);
   refreshTray();
@@ -165,7 +178,7 @@ function applyLoginItem() {
 
 ipcMain.handle("get-state", () => ({
   prefs: prefs.public, hooks: hooks.status(), platform: process.platform, canLaunchAtLogin: isWin || isMac,
-  version: app.getVersion(),
+  version: app.getVersion(), hotkeyOk,
 }));
 ipcMain.handle("set-pref", (_e, key, value) => { setPref(key, value); return prefs.public; });
 ipcMain.handle("demo", () => runCommand("demo"));
@@ -178,6 +191,87 @@ for (const [channel, action] of [["hooks-connect", hooks.install], ["hooks-disco
     return st;
   });
 }
+
+// MARK: Chat
+
+function registerHotkeys() {
+  globalShortcut.unregisterAll();
+  try { hotkeyOk = globalShortcut.register(prefs.get("chatHotkey"), toggleChat); } catch { hotkeyOk = false; }
+}
+
+// The settings page is recording a new shortcut: the old one mustn't fire meanwhile.
+ipcMain.handle("hotkey-recording", (_e, on) => {
+  if (on) globalShortcut.unregisterAll(); else registerHotkeys();
+  return hotkeyOk;
+});
+
+const chatState = () => ({
+  view: "chat", phase: chat.phase, question: chat.question, answer: chat.answer, error: chat.error,
+  lang: prefs.get("lang"),
+});
+
+function pushChat() { if (chat.open) card.send(chatState()); }
+
+function openChat() {
+  if (manuallyHidden) toggleVisible();
+  if (!chat.open) Object.assign(chat, { open: true, phase: "input", question: "", answer: "", error: false, history: [] });
+  card.show(chatState(), { focus: true });
+}
+
+function closeChat() {
+  if (!chat.open) return;
+  chat.cancel?.();
+  chat.cancel = null;
+  chat.open = false;
+  card.hide();
+}
+
+function toggleChat() {
+  if (chat.open) closeChat(); else openChat();
+}
+
+/** The CLI call is stateless, so earlier turns of this chat ride along in the prompt. */
+function chatPrompt(question) {
+  if (!chat.history.length) return question;
+  const past = chat.history.map((t) => `User: ${t.question}\nClawd: ${t.answer}`).join("\n\n");
+  return `Earlier in this chat:\n\n${past}\n\n---\nThe user's new message:\n${question}`;
+}
+
+function chatError(error) {
+  switch (error.kind) {
+    case "notFound": return L10n.ui("errNotFound");
+    case "notLoggedIn": return L10n.ui("errLogin");
+    case "offline": return L10n.ui("errOffline");
+    case "timeout": return L10n.ui("errTimeout");
+    default: return L10n.ui("errOther") + (error.detail || "");
+  }
+}
+
+function askChat(question) {
+  if (!chat.open || chat.phase === "thinking") return;
+  Object.assign(chat, { question, answer: "", error: false, phase: "thinking" });
+  pushChat();
+  chat.cancel = claude.ask(chatPrompt(question), {
+    onText: (text) => { Object.assign(chat, { answer: text, phase: "answer" }); pushChat(); },
+    onDone: (r) => {
+      chat.cancel = null;
+      if (r.ok) {
+        chat.answer = r.text;
+        chat.history.push({ question, answer: r.text });
+      } else {
+        Object.assign(chat, { answer: chatError(r.error), error: true });
+      }
+      chat.phase = "answer";
+      pushChat();
+    },
+  });
+}
+
+const fromCard = (e) => e.sender === card?.webContents;
+ipcMain.on("card-submit", (e, text) => { if (fromCard(e) && typeof text === "string") askChat(text.slice(0, 4000)); });
+ipcMain.on("card-close", (e) => { if (fromCard(e)) closeChat(); });
+ipcMain.on("card-height", (e, h) => { if (fromCard(e) && Number.isFinite(h)) card.setHeight(h); });
+ipcMain.on("card-copy", (e, text) => { if (fromCard(e) && typeof text === "string") clipboard.writeText(text); });
 
 // MARK: Hook server
 
@@ -218,6 +312,7 @@ function menuTemplate() {
   return [
     { label: "Clawd Buddy", enabled: false },
     { type: "separator" },
+    { label: L10n.ui("askClawd"), accelerator: prefs.get("chatHotkey"), click: openChat },
     { label: L10n.ui("settings"), click: openSettings },
     {
       label: L10n.ui("language"),
@@ -298,3 +393,4 @@ ipcMain.on("settings-height", (e, h) => {
 
 app.on("window-all-closed", (e) => e.preventDefault());
 app.on("before-quit", () => server?.close());
+app.on("will-quit", () => globalShortcut.unregisterAll());
