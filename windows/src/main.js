@@ -21,6 +21,9 @@ let card;
 let hotkeyOk = true;
 // The chat in the card: one conversation per opening, follow-ups carry it in the prompt.
 const chat = { open: false, phase: "input", question: "", answer: "", error: false, history: [], cancel: null };
+// The permission request on the card, if any: { res, title, detail, since, fits, timer }.
+let approval = null;
+const APPROVAL_CARD_MS = 20_000;
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -45,7 +48,8 @@ function start() {
   card = new Card({
     preload: path.join(__dirname, "preload.js"),
     buddyBounds: () => buddy.getBounds(),
-    onBlur: closeChat,  // a click anywhere else closes it, like a popover
+    // A click anywhere else closes the chat, like a popover; an approval waits for its buttons.
+    onBlur: () => { if (!approval) closeChat(); },
   });
   registerHotkeys();
   createTray();
@@ -210,12 +214,24 @@ const chatState = () => ({
   lang: prefs.get("lang"),
 });
 
-function pushChat() { if (chat.open) card.send(chatState()); }
+/** What the card shows: a permission request first, then the chat. */
+function cardState() {
+  if (approval) return approvalState();
+  if (chat.open) return chatState();
+  return null;
+}
+
+function refreshCard({ focus = false } = {}) {
+  const s = cardState();
+  if (s) card.show(s, { focus }); else card.hide();
+}
+
+function pushChat() { if (chat.open && !approval) card.send(chatState()); }
 
 function openChat() {
   if (manuallyHidden) toggleVisible();
   if (!chat.open) Object.assign(chat, { open: true, phase: "input", question: "", answer: "", error: false, history: [] });
-  card.show(chatState(), { focus: true });
+  refreshCard({ focus: true });
 }
 
 function closeChat() {
@@ -223,7 +239,7 @@ function closeChat() {
   chat.cancel?.();
   chat.cancel = null;
   chat.open = false;
-  card.hide();
+  refreshCard();
 }
 
 function toggleChat() {
@@ -273,19 +289,92 @@ ipcMain.on("card-close", (e) => { if (fromCard(e)) closeChat(); });
 ipcMain.on("card-height", (e, h) => { if (fromCard(e) && Number.isFinite(h)) card.setHeight(h); });
 ipcMain.on("card-copy", (e, text) => { if (fromCard(e) && typeof text === "string") clipboard.writeText(text); });
 
+// MARK: Approvals
+
+function approvalTitle(tool) {
+  switch (tool) {
+    case "Bash": case "PowerShell": return L10n.ui("approveCommand");
+    case "Edit": case "MultiEdit": case "Write": case "NotebookEdit": return L10n.ui("approveEdit");
+    case "WebFetch": case "WebSearch": return L10n.ui("approveWeb");
+    default: return L10n.ui("approveTool").replace("%s", tool.startsWith("mcp__") ? tool.split("__").pop() : tool);
+  }
+}
+
+const approvalState = () => ({
+  view: "approval", title: approval.title, detail: approval.detail, since: approval.since,
+  seconds: APPROVAL_CARD_MS / 1000, lang: prefs.get("lang"),
+});
+
+/** A PermissionRequest hook is waiting on `res` until the user answers or the card times out. */
+function requestApproval(payload, res) {
+  // One card at a time, and only when wanted; everything else goes to the terminal at once.
+  if (approval || !prefs.get("approvalCard")) { respondApproval(res, null); return; }
+  const tool = typeof payload.tool_name === "string" ? payload.tool_name : "";
+  approval = {
+    res, since: Date.now(), fits: false,
+    title: hooks.visible(approvalTitle(tool)),
+    detail: hooks.visible(hooks.approvalDetail(tool, payload.tool_input || {})),
+    timer: setTimeout(() => answerApproval("terminal"), APPROVAL_CARD_MS),
+  };
+  // Claude Code got its answer elsewhere (terminal, editor) or gave up: drop the card.
+  res.on("close", () => { if (approval?.res === res && !res.writableEnded) closeApproval(); });
+  sendToBuddy("hook", { event: "Notification", kind: "permission_prompt", tool: "", detail: "", message: "" });
+  refreshCard();
+}
+
+function respondApproval(res, decision) {
+  if (res.writableEnded) return;
+  res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(hooks.approvalResponse(decision)));
+}
+
+/** Nothing is allowed unless the user clicked Allow on a card that showed the whole request. */
+function answerApproval(decision) {
+  if (!approval) return;
+  if (decision !== "terminal" && Date.now() - approval.since < 700) return;  // a stray click as it appeared
+  if (decision === "allow" && !approval.fits) return;
+  respondApproval(approval.res, decision);
+  closeApproval();
+  if (decision !== "terminal") sendToBuddy("command", "answered");
+}
+
+function closeApproval() {
+  if (!approval) return;
+  clearTimeout(approval.timer);
+  approval = null;
+  refreshCard();
+}
+
+ipcMain.on("approval-answer", (e, d) => { if (fromCard(e) && ["allow", "deny", "terminal"].includes(d)) answerApproval(d); });
+ipcMain.on("approval-fits", (e, fits) => { if (fromCard(e) && approval) approval.fits = fits === true; });
+
 // MARK: Hook server
 
 function startServer() {
   server = http.createServer((req, res) => {
     // Claude Code sends neither Origin nor a foreign Host; browsers (incl. DNS rebinding) do.
-    if (req.method !== "POST" || req.url !== hooks.hookPath() || req.headers.host !== hooks.HOST || req.headers.origin) {
+    const isApproval = req.url === hooks.approvePath();
+    if (req.method !== "POST" || (req.url !== hooks.hookPath() && !isApproval)
+        || req.headers.host !== hooks.HOST || req.headers.origin) {
       res.writeHead(404).end();
+      return;
+    }
+    if (isApproval) {
+      hooks.readBody(req).then((body) => {
+        let payload;
+        try { payload = JSON.parse(body); } catch { respondApproval(res, null); return; }
+        requestApproval(payload, res);
+      }).catch(() => { if (!res.writableEnded) res.writeHead(413).end(); });
       return;
     }
     hooks.readBody(req).then((body) => {
       // Answer right away so Claude Code never waits on us.
       res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
-      try { sendToBuddy("hook", hooks.normalize(JSON.parse(body))); } catch {}
+      try {
+        const info = hooks.normalize(JSON.parse(body));
+        // The turn moved on without the card: let the terminal have it.
+        if (info.event === "Stop" || info.event === "UserPromptSubmit") answerApproval("terminal");
+        sendToBuddy("hook", info);
+      } catch {}
     }).catch(() => {
       if (!res.writableEnded) res.writeHead(413).end();
     });

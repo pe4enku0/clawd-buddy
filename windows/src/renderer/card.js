@@ -44,8 +44,46 @@
     }
   }
 
+  /** Approval: the whole request, a countdown ring, Deny / Allow. Allow only if it all fits. */
+  function renderApproval() {
+    $("title").textContent = state.title;
+    $("subtitle").textContent = "";
+    answer.replaceChildren();
+    copy.classList.remove("ready");
+    $("ask").hidden = true;
+    $("approval").hidden = false;
+    $("ring").hidden = false;
+    $("ring").title = L10n.ui("answerInTerminal");
+    $("deny").textContent = L10n.ui("deny");
+    $("allow").textContent = L10n.ui("allow");
+    const command = $("command");
+    command.textContent = state.detail;
+    const fits = command.scrollHeight <= command.clientHeight + 1;
+    $("allow").disabled = !fits;
+    $("tooLong").hidden = fits;
+    $("tooLong").textContent = "⚠ " + L10n.ui("approvalTooLong");
+    clawd.send("approval-fits", fits);
+
+    // The ring empties over what's left of the card's time.
+    const total = state.seconds, left = Math.max(0, total - (Date.now() - state.since) / 1000);
+    const ring = $("ringLeft");
+    ring.style.animation = "none";
+    void ring.getBoundingClientRect();
+    ring.style.setProperty("--from", String(69.1 * (1 - left / total)));
+    ring.style.animation = `ring ${left}s linear forwards`;
+    requestAnimationFrame(() => clawd.send("card-height", card.getBoundingClientRect().height));
+  }
+
+  $("allow").addEventListener("click", () => clawd.send("approval-answer", "allow"));
+  $("deny").addEventListener("click", () => clawd.send("approval-answer", "deny"));
+  $("ring").addEventListener("click", () => clawd.send("approval-answer", "terminal"));
+
   function render() {
     L10n.lang = state.lang;
+    card.classList.toggle("thinking", false);
+    if (state.view === "approval") { renderApproval(); return; }
+    $("approval").hidden = true;
+    $("ring").hidden = true;
     const chat = state.view === "chat";
     const thinking = chat && state.phase === "thinking";
     card.classList.toggle("thinking", thinking);

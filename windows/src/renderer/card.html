@@ -15,6 +15,17 @@
         <div class="subtitle" id="subtitle"></div>
       </div>
       <button class="copy" id="copy"></button>
+      <button class="ring" id="ring" hidden>
+        <svg viewBox="0 0 28 28"><circle class="track" cx="14" cy="14" r="11"/><circle class="left" id="ringLeft" cx="14" cy="14" r="11"/></svg>
+      </button>
+    </div>
+    <div class="approval" id="approval" hidden>
+      <pre class="command" id="command"></pre>
+      <div class="warn" id="tooLong" hidden></div>
+      <div class="buttons">
+        <button class="pill" id="deny"></button>
+        <button class="pill main" id="allow"></button>
+      </div>
     </div>
     <div class="answer" id="answer"></div>
     <form class="ask" id="ask">

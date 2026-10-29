@@ -16,6 +16,12 @@ let token = "";
 const setToken = (t) => { token = t; };
 const hookPath = () => `/hook/${token}`;
 const hookUrl = () => `http://${HOST}${hookPath()}`;
+// PermissionRequest waits on its own URL for the card's Allow / Deny (see main.js).
+const APPROVAL_EVENT = "PermissionRequest";
+const APPROVAL_TIMEOUT_S = 30;
+const approvePath = () => `${hookPath()}/approve`;
+const approveUrl = () => `http://${HOST}${approvePath()}`;
+const currentUrl = (event) => (event === APPROVAL_EVENT ? approveUrl() : hookUrl());
 
 const truncate = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
@@ -39,7 +45,7 @@ function readBody(req, limit = 2_000_000) {
 // Also matches entries from older versions without a token, so they get cleaned up.
 const isOurs = (h) => h && h.type === "http" && typeof h.url === "string" && h.url.startsWith(HOOK_BASE);
 const hasOurs = (group) => (group.hooks || []).some(isOurs);
-const hasCurrent = (group) => (group.hooks || []).some((h) => isOurs(h) && h.url === hookUrl());
+const hasCurrent = (group, event) => (group.hooks || []).some((h) => isOurs(h) && h.url === currentUrl(event));
 
 /** Boils a hook payload down to what the buddy needs. Mirrors macos/Sources/HookBridge.swift. */
 function normalize(j) {
@@ -70,6 +76,56 @@ function normalize(j) {
     message: truncate(typeof j.message === "string" ? j.message : "", 160),
     kind: typeof j.notification_type === "string" ? j.notification_type : "",
   };
+}
+
+/**
+ * Everything the user would be allowing, untrimmed: a short summary could hide the dangerous part,
+ * e.g. the second line of a command. Mirrors approvalDetail in macos/Sources/HookBridge.swift.
+ */
+function approvalDetail(tool, input = {}) {
+  const str = (k) => (typeof input[k] === "string" ? input[k] : "");
+  const home = os.homedir();
+  const tilde = (p) => (home && p.toLowerCase().startsWith(home.toLowerCase() + path.sep) ? "~" + p.slice(home.length) : p);
+  let text;
+  switch (tool) {
+    case "Bash": case "PowerShell": text = str("command"); break;
+    case "Edit": case "MultiEdit": case "Write": case "Read": text = tilde(str("file_path")); break;
+    case "NotebookEdit": text = tilde(str("notebook_path")); break;
+    case "WebFetch": text = str("url"); break;
+    case "WebSearch": text = str("query"); break;
+    default: {
+      const sorted = (v) => (v && typeof v === "object" && !Array.isArray(v)
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
+      text = JSON.stringify(sorted(input)) || "";
+    }
+  }
+  return text.slice(0, 4000);
+}
+
+/**
+ * Makes invisible tricks visible: control characters and zero-width / bidi-override marks
+ * (which can make "rm -rf ~" read like something harmless). Newlines stay.
+ */
+function visible(s) {
+  let out = "";
+  for (const ch of String(s)) {
+    const c = ch.codePointAt(0);
+    if (c === 0x0a) out += "\n";
+    else if (c === 0x09) out += "  ";
+    else if (c < 0x20 || (c >= 0x7f && c < 0xa0)) out += `\\x${c.toString(16).toUpperCase().padStart(2, "0")}`;
+    else if ((c >= 0x200b && c <= 0x200f) || (c >= 0x202a && c <= 0x202e) || (c >= 0x2060 && c <= 0x2069) || c === 0xfeff) {
+      out += `<U+${c.toString(16).toUpperCase().padStart(4, "0")}>`;
+    } else out += ch;
+  }
+  return out;
+}
+
+/** The body that answers a PermissionRequest hook; null = no decision, Claude Code asks as usual. */
+function approvalResponse(decision) {
+  if (decision !== "allow" && decision !== "deny") return {};
+  const d = decision === "allow" ? { behavior: "allow" }
+    : { behavior: "deny", message: "The user denied this from the Clawd Buddy card." };
+  return { hookSpecificOutput: { hookEventName: APPROVAL_EVENT, decision: d } };
 }
 
 /** Throws on invalid JSON so we never overwrite a file we couldn't parse. */
@@ -106,8 +162,9 @@ function status() {
   try {
     const s = read();
     const groups = (e) => (Array.isArray(s.hooks?.[e]) ? s.hooks[e] : []);
-    const installed = EVENTS.every((e) => groups(e).some(hasCurrent));
-    const outdated = !installed && EVENTS.some((e) => groups(e).some(hasOurs));
+    const all = [...EVENTS, APPROVAL_EVENT];
+    const installed = all.every((e) => groups(e).some((g) => hasCurrent(g, e)));
+    const outdated = !installed && all.some((e) => groups(e).some(hasOurs));
     return { installed, outdated, error: false, path: SETTINGS };
   } catch {
     return { installed: false, outdated: false, error: true, path: SETTINGS };
@@ -124,6 +181,9 @@ function install() {
     s.hooks[e] = s.hooks[e] || [];
     s.hooks[e].push(TOOL_EVENTS.has(e) ? { matcher: "*", hooks: [ours] } : { hooks: [ours] });
   }
+  // Waits for the card (at most ~20 s); no answer means Claude Code asks as usual.
+  s.hooks[APPROVAL_EVENT] = s.hooks[APPROVAL_EVENT] || [];
+  s.hooks[APPROVAL_EVENT].push({ matcher: "*", hooks: [{ type: "http", url: approveUrl(), timeout: APPROVAL_TIMEOUT_S }] });
   write(s);
 }
 
@@ -133,4 +193,7 @@ function uninstall() {
   write(s);
 }
 
-module.exports = { PORT, HOST, setToken, hookPath, normalize, readBody, status, install, uninstall };
+module.exports = {
+  PORT, HOST, setToken, hookPath, approvePath, normalize, readBody, status, install, uninstall,
+  approvalDetail, visible, approvalResponse,
+};

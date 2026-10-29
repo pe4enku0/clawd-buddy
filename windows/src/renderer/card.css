@@ -58,6 +58,28 @@ body { padding: 14px; user-select: none; -webkit-user-select: none; }
 .thinking .title::after { content: ""; animation: dots 1.2s steps(4) infinite; }
 @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 
+.approval[hidden], .warn[hidden], .ring[hidden] { display: none; }
+.approval { display: flex; flex-direction: column; gap: 10px; }
+.command {
+  margin: 0; font: 12.5px/18px var(--mono); color: var(--muted); white-space: pre-wrap; word-break: break-all;
+  max-height: 54px; overflow: hidden; user-select: text; -webkit-user-select: text;
+}
+.warn { color: var(--warn); font-size: 12px; font-weight: 600; }
+.buttons { display: flex; gap: 10px; }
+.pill {
+  flex: 1; height: 34px; border: 0; border-radius: 999px; background: var(--field); color: var(--text);
+  font: 600 13px var(--sans); cursor: pointer;
+}
+.pill.main { background: var(--accent); color: #fff; }
+.pill.main:active { background: var(--accent-press); }
+.pill:disabled { opacity: 0.35; cursor: default; }
+.ring { flex: none; width: 28px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; }
+.ring svg { width: 28px; height: 28px; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 3; }
+.ring .track { stroke: var(--field); }
+.ring .left { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 69.1; }
+@keyframes ring { from { stroke-dashoffset: var(--from); } to { stroke-dashoffset: 69.1; } }
+
 .ask { display: flex; gap: 8px; }
 .ask[hidden] { display: none; }
 .ask input {

@@ -13,6 +13,7 @@ const DEFAULTS = {
   hideWhenSleeping: false,
   launchAtLogin: true,
   chatHotkey: "Control+Alt+Space", // Electron accelerator; Alt+Space is the window menu on Windows
+  approvalCard: true,
   anchor: null, // top-right corner of the buddy window, in screen DIPs
   firstRunDone: false,
 };

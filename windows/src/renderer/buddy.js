@@ -36,6 +36,7 @@
     if (cmd === "greet") brain.greet();
     else if (cmd === "demo") brain.demo();
     else if (cmd === "remind") brain.remindToConnect();
+    else if (cmd === "answered") brain.permissionAnswered();
   });
 
   canvas.addEventListener("mousedown", (e) => {

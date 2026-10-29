@@ -136,6 +136,10 @@
       errLogin: "Claude Code isn't signed in. Open Claude Code, sign in, then ask again.",
       errOffline: "Can't reach Claude. Check your internet connection and try again.",
       errTimeout: "Claude is taking too long. Try again.", errOther: "Something went wrong: ",
+      approveCommand: "Allow this command?", approveEdit: "Allow this edit?", approveWeb: "Allow web access?",
+      approveTool: "Allow %s?", allow: "Allow", deny: "Deny", answerInTerminal: "I'll answer in the terminal",
+      approvalTooLong: "Too long to show here, check it in the terminal",
+      approvalCard: "Approve from the crab", approvalCardHint: "Allow or deny Claude's requests without switching windows",
     },
     ru: {
       settings: "Настройки…", language: "Язык", hideWhenSleeping: "Прятаться, когда сплю", sayHi: "Поздороваться",
@@ -161,6 +165,10 @@
       errLogin: "Claude Code не вошёл в аккаунт. Открой Claude Code и войди, потом спроси ещё раз.",
       errOffline: "Нет связи с Claude. Проверь интернет и попробуй ещё раз.",
       errTimeout: "Claude слишком долго не отвечает. Попробуй ещё раз.", errOther: "Что-то пошло не так: ",
+      approveCommand: "Разрешить команду?", approveEdit: "Разрешить правку?", approveWeb: "Разрешить доступ в интернет?",
+      approveTool: "Разрешить «%s»?", allow: "Разрешить", deny: "Отклонить", answerInTerminal: "Отвечу в терминале",
+      approvalTooLong: "Не влезает целиком — посмотри и ответь в терминале",
+      approvalCard: "Кнопки подтверждения у краба", approvalCardHint: "Разрешить или отклонить действие, не переключаясь в терминал",
     },
   };
 

@@ -175,3 +175,44 @@ test("status: reports installed, outdated and broken files", () => {
   assert.equal(broken.installed, false);
   assert.equal(broken.error, true);
 });
+
+test("install: PermissionRequest waits on its own URL, once, with a timeout", () => {
+  reset();
+  hooks.install();
+  hooks.install();
+  const groups = readSettings().hooks.PermissionRequest;
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0], { matcher: "*", hooks: [{ type: "http", url: `${OUR_URL}/approve`, timeout: 30 }] });
+  assert.equal(hooks.status().installed, true);
+});
+
+test("status: an install from before approvals counts as outdated, so it gets upgraded", () => {
+  reset();
+  const old = Object.fromEntries(EVENTS.map((e) => [e, [{ hooks: [ourHook()] }]]));
+  writeSettings({ hooks: old });
+  assert.deepEqual([hooks.status().installed, hooks.status().outdated], [false, true]);
+  hooks.uninstall();
+  assert.equal(fs.readFileSync(SETTINGS, "utf8").includes(TOKEN), false, "uninstall removes the approval hook too");
+});
+
+test("approvalDetail: shows the whole thing, not a summary", () => {
+  assert.equal(hooks.approvalDetail("Bash", { command: "echo hi\nrm -rf ~/Documents" }), "echo hi\nrm -rf ~/Documents");
+  assert.equal(hooks.approvalDetail("WebFetch", { url: "https://example.com/x?y=1" }), "https://example.com/x?y=1");
+  assert.equal(hooks.approvalDetail("mcp__db__query", { sql: "DROP TABLE x", db: "prod" }), '{"db":"prod","sql":"DROP TABLE x"}');
+  assert.equal(hooks.approvalDetail("Bash", { command: "x".repeat(5000) }).length, 4000);
+});
+
+test("visible: control and bidi characters can't hide what a command does", () => {
+  assert.equal(hooks.visible("echo ‮fdp.exe"), "echo <U+202E>fdp.exe");
+  assert.equal(hooks.visible("a​b"), "a<U+200B>b");
+  assert.equal(hooks.visible("clear\x1b[2J"), "clear\\x1B[2J");
+  assert.equal(hooks.visible("line1\nline2\tx"), "line1\nline2  x");
+});
+
+test("approvalResponse: only an explicit choice carries a decision", () => {
+  assert.deepEqual(hooks.approvalResponse("allow"),
+    { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } } });
+  assert.equal(hooks.approvalResponse("deny").hookSpecificOutput.decision.behavior, "deny");
+  assert.deepEqual(hooks.approvalResponse("terminal"), {});
+  assert.deepEqual(hooks.approvalResponse(undefined), {});
+});

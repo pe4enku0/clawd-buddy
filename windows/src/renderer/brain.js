@@ -64,6 +64,14 @@
     }
     dropped() { this.sayNow(L10n.pick("dropped")); }
 
+    /** The user allowed or denied from the card: stop waving and get back to work. */
+    permissionAnswered() {
+      this.view.hideBubble();
+      this.bubbleHideAt = null;
+      this.pending = null;
+      this.set(this.turnActive ? "thinking" : "idle");
+    }
+
     handle(info) {
       const now = Date.now();
       if (this.activeSince === null || now - this.lastEventAt > 15 * 60000) this.activeSince = now;
