@@ -64,6 +64,22 @@
   window.addEventListener("mouseup", (e) => { if (e.button === 0) endDrag(e); });
   window.addEventListener("blur", () => endDrag(null));
 
+  // A file dragged onto the crab: the window takes drops while the cursor is over the crab.
+  let dragNote = false;
+  window.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (!dragNote) { dragNote = true; brain.fileOver(); }
+  });
+  window.addEventListener("dragleave", () => { if (dragNote) { dragNote = false; brain.fileGone(); } });
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragNote = false;
+    brain.fileGone();
+    const file = e.dataTransfer.files[0];
+    const p = file && clawd.pathForFile(file);
+    if (p) clawd.send("file-dropped", p);
+  });
+
   canvas.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     clawd.send("show-menu");

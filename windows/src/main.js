@@ -1,5 +1,6 @@
 // Clawd Buddy for Windows (also runs on macOS/Linux for development).
 const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, nativeTheme, globalShortcut, clipboard } = require("electron");
+const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const { L10n } = require("./renderer/strings.js");
@@ -7,6 +8,7 @@ const hooks = require("./hooks");
 const { Prefs } = require("./prefs");
 const { Card } = require("./card");
 const claude = require("./claude");
+const files = require("./files");
 
 const BASE = { w: 380, h: 136 };
 const SCALE = { small: 2 / 3, medium: 1, large: 4 / 3 };
@@ -20,7 +22,8 @@ let manuallyHidden = false;
 let card;
 let hotkeyOk = true;
 // The chat in the card: one conversation per opening, follow-ups carry it in the prompt.
-const chat = { open: false, phase: "input", question: "", answer: "", error: false, history: [], cancel: null };
+// `file` is a dropped file this chat is about, kept for follow-ups and deleted when the chat closes.
+const chat = { open: false, phase: "input", question: "", answer: "", error: false, note: "", history: [], cancel: null, file: null };
 // The permission request on the card, if any: { res, title, detail, since, fits, timer }.
 let approval = null;
 const APPROVAL_CARD_MS = 20_000;
@@ -44,6 +47,7 @@ function start() {
   }
   applyLoginItem();
 
+  files.cleanUp();
   createBuddy();
   card = new Card({
     preload: path.join(__dirname, "preload.js"),
@@ -211,7 +215,7 @@ ipcMain.handle("hotkey-recording", (_e, on) => {
 
 const chatState = () => ({
   view: "chat", phase: chat.phase, question: chat.question, answer: chat.answer, error: chat.error,
-  lang: prefs.get("lang"),
+  note: chat.note, lang: prefs.get("lang"),
 });
 
 /** What the card shows: a permission request first, then the chat. */
@@ -230,7 +234,7 @@ function pushChat() { if (chat.open && !approval) card.send(chatState()); }
 
 function openChat() {
   if (manuallyHidden) toggleVisible();
-  if (!chat.open) Object.assign(chat, { open: true, phase: "input", question: "", answer: "", error: false, history: [] });
+  if (!chat.open) Object.assign(chat, { open: true, phase: "input", question: "", answer: "", error: false, note: "", history: [] });
   refreshCard({ focus: true });
 }
 
@@ -239,6 +243,8 @@ function closeChat() {
   chat.cancel?.();
   chat.cancel = null;
   chat.open = false;
+  files.discard(chat.file);
+  chat.file = null;
   refreshCard();
 }
 
@@ -263,11 +269,19 @@ function chatError(error) {
   }
 }
 
-function askChat(question) {
+/** `prompt` replaces the usual one (the file summary request). */
+function askChat(question, prompt = null) {
   if (!chat.open || chat.phase === "thinking") return;
+  if (!prompt) chat.note = "";
   Object.assign(chat, { question, answer: "", error: false, phase: "thinking" });
   pushChat();
-  chat.cancel = claude.ask(chatPrompt(question), {
+  let text = prompt || chatPrompt(question);
+  if (!prompt && chat.file) {
+    text = `Earlier the user dropped the file ${chat.file.name} into this chat; it is in the current folder. `
+      + `Read it again if the question needs it.${chat.file.hint}\n\n${text}`;
+  }
+  chat.cancel = claude.ask(text, {
+    files: chat.file ? [chat.file.path] : [],
     onText: (text) => { Object.assign(chat, { answer: text, phase: "answer" }); pushChat(); },
     onDone: (r) => {
       chat.cancel = null;
@@ -282,6 +296,44 @@ function askChat(question) {
     },
   });
 }
+
+// MARK: Files
+
+/** Electron's own image code shrinks pictures before they're sent. */
+function resizeImage(file, maxPixels) {
+  const img = nativeImage.createFromPath(file);
+  if (img.isEmpty()) return null;
+  const { width, height } = img.getSize();
+  const k = Math.min(1, maxPixels / Math.max(width, height));
+  return (k < 1 ? img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: "good" }) : img).toJPEG(85);
+}
+
+/** A file landed on the crab or the card: sum it up in the chat, then keep it for follow-ups. */
+function dropFile(file) {
+  if (!chat.open) openChat();
+  chat.cancel?.();
+  chat.cancel = null;
+  files.discard(chat.file);
+  Object.assign(chat, { file: null, history: [], phase: "input" });
+  const lang = prefs.get("lang");
+  const prepared = files.prepare(file, { lang, resizeImage });
+  if (!prepared) {
+    Object.assign(chat, { question: path.basename(file), answer: L10n.ui("fileUnsupported"), error: true, note: "", phase: "answer" });
+    refreshCard({ focus: true });
+    return;
+  }
+  chat.file = prepared;
+  chat.note = prepared.note || "";
+  const prompt = `The user dropped a file on you: ${prepared.name}, in the current folder. Read it and sum it up `
+    + `in 3-5 sentences: what it is and its main points.${prepared.hint} Reply in ${lang === "ru" ? "Russian" : "English"}.`;
+  askChat(L10n.ui("fileSummary").replace("%s", prepared.name), prompt);
+  refreshCard({ focus: true });
+}
+
+ipcMain.on("file-dropped", (e, file) => {
+  const ok = e.sender === buddy?.webContents || e.sender === card?.webContents;
+  if (ok && typeof file === "string" && path.isAbsolute(file) && fs.existsSync(file)) dropFile(file);
+});
 
 const fromCard = (e) => e.sender === card?.webContents;
 ipcMain.on("card-submit", (e, text) => { if (fromCard(e) && typeof text === "string") askChat(text.slice(0, 4000)); });

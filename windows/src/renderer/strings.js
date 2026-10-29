@@ -140,6 +140,8 @@
       approveTool: "Allow %s?", allow: "Allow", deny: "Deny", answerInTerminal: "I'll answer in the terminal",
       approvalTooLong: "Too long to show here, check it in the terminal",
       approvalCard: "Approve from the crab", approvalCardHint: "Allow or deny Claude's requests without switching windows",
+      fileDropTitle: "Drop it, I'll sum it up", fileSummary: "Sum up “%s”",
+      fileUnsupported: "I can't read this kind of file. Text, code, .md, .pdf and .png/.jpg images work.",
     },
     ru: {
       settings: "Настройки…", language: "Язык", hideWhenSleeping: "Прятаться, когда сплю", sayHi: "Поздороваться",
@@ -169,6 +171,8 @@
       approveTool: "Разрешить «%s»?", allow: "Разрешить", deny: "Отклонить", answerInTerminal: "Отвечу в терминале",
       approvalTooLong: "Не влезает целиком — посмотри и ответь в терминале",
       approvalCard: "Кнопки подтверждения у краба", approvalCardHint: "Разрешить или отклонить действие, не переключаясь в терминал",
+      fileDropTitle: "Отпусти — перескажу", fileSummary: "Перескажи «%s»",
+      fileUnsupported: "Такие файлы я не читаю. Подойдут текст, код, .md, .pdf и картинки .png/.jpg.",
     },
   };
 

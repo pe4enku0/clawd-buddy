@@ -52,6 +52,7 @@
     copy.classList.remove("ready");
     $("ask").hidden = true;
     $("approval").hidden = false;
+    $("note").hidden = true;
     $("ring").hidden = false;
     $("ring").title = L10n.ui("answerInTerminal");
     $("deny").textContent = L10n.ui("deny");
@@ -90,6 +91,8 @@
     $("title").textContent = thinking ? L10n.ui("chatThinking") : state.phase === "input" ? L10n.buddyName : "";
     $("subtitle").textContent = state.question || "";
     renderAnswer(state.phase === "answer" ? state.answer : "", state.error);
+    $("note").textContent = state.note ? "⚠ " + state.note : "";
+    $("note").hidden = !state.note || state.phase !== "answer";
     answer.style.maxHeight = `${Math.max(120, state.maxHeight - 120)}px`;
     copy.textContent = L10n.ui("copy");
     copy.classList.toggle("ready", state.phase === "answer" && !!state.answer);
@@ -117,6 +120,15 @@
   answer.addEventListener("contextmenu", (e) => { e.preventDefault(); copyAnswer(); });
 
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") clawd.send("card-close"); });
+
+  // Files can be dropped on the open card too.
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    const p = file && clawd.pathForFile(file);
+    if (p) clawd.send("file-dropped", p);
+  });
 
   clawd.on("card-state", (s) => { state = s; render(); });
 })();

@@ -64,6 +64,17 @@
     }
     dropped() { this.sayNow(L10n.pick("dropped")); }
 
+    /** A file is being dragged onto the crab. */
+    fileOver() {
+      this.view.play("wave");
+      this.sayNow(L10n.ui("fileDropTitle"), true);
+    }
+
+    fileGone() {
+      this.view.hideBubble();
+      this.bubbleHideAt = null;
+    }
+
     /** The user allowed or denied from the card: stop waving and get back to work. */
     permissionAnswered() {
       this.view.hideBubble();
