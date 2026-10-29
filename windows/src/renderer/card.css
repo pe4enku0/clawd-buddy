@@ -80,6 +80,17 @@ body { padding: 14px; user-select: none; -webkit-user-select: none; }
 .ring .left { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 69.1; }
 @keyframes ring { from { stroke-dashoffset: var(--from); } to { stroke-dashoffset: 69.1; } }
 
+.clocks[hidden], #alarmButtons[hidden] { display: none; }
+.clocks { display: flex; flex-direction: column; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.clock { display: flex; align-items: center; gap: 8px; height: 30px; }
+.clock .icon { width: 14px; color: var(--accent); font-size: 12px; text-align: center; }
+.clock .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clock .time { font: 12.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.clock button {
+  width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--field); color: var(--muted);
+  font: 700 10px var(--sans); cursor: pointer; padding: 0;
+}
+
 .ask { display: flex; gap: 8px; }
 .ask[hidden] { display: none; }
 .ask input {

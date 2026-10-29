@@ -10,6 +10,7 @@ const { Prefs } = require("./prefs");
 const { Card } = require("./card");
 const claude = require("./claude");
 const files = require("./files");
+const T = require("./timers");
 
 const BASE = { w: 380, h: 136 };
 const SCALE = { small: 2 / 3, medium: 1, large: 4 / 3 };
@@ -31,6 +32,8 @@ const chat = { open: false, phase: "input", question: "", answer: "", error: fal
 // The permission request on the card, if any: { res, title, detail, since, fits, timer }.
 let approval = null;
 const APPROVAL_CARD_MS = 20_000;
+// Timers and the stopwatch; `alarm` is the one whose card is up, the queue holds any that rang meanwhile.
+let timerStore, alarm = null, alarmQueue = [], lastBadge = "", lastTimerKey = "";
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -52,15 +55,17 @@ function start() {
   applyLoginItem();
 
   files.cleanUp();
+  timerStore = new T.TimerStore(app.getPath("userData"));
   createBuddy();
   card = new Card({
     preload: path.join(__dirname, "preload.js"),
     buddyBounds: () => buddy.getBounds(),
     // A click anywhere else closes the chat, like a popover; an approval waits for its buttons.
-    onBlur: () => { if (!approval && !capturing) closeChat(); },
+    onBlur: () => { if (!approval && !alarm && !capturing) closeChat(); },
   });
   registerHotkeys();
   createTray();
+  setInterval(timerTick, 250);
   startServer();
   setInterval(pollCursor, 33);
   screen.on("display-metrics-changed", placeBuddy);
@@ -221,11 +226,14 @@ ipcMain.handle("hotkey-recording", (_e, on) => {
 const chatState = () => ({
   view: "chat", phase: chat.phase, question: chat.question, answer: chat.answer, error: chat.error,
   note: chat.note, attach: chat.attach, looking: chat.looking, lang: prefs.get("lang"),
+  timers: timerStore.timers.slice(0, 3).map((t) => ({ id: t.id, name: timerName(t), fireAt: t.fireAt })),
+  stopwatch: timerStore.stopwatch,
 });
 
-/** What the card shows: a permission request first, then the chat. */
+/** What the card shows: a permission request first, then an alarm, then the chat. */
 function cardState() {
   if (approval) return approvalState();
+  if (alarm) return alarmState();
   if (chat.open) return chatState();
   return null;
 }
@@ -235,7 +243,7 @@ function refreshCard({ focus = false } = {}) {
   if (s) card.show(s, { focus }); else card.hide();
 }
 
-function pushChat() { if (chat.open && !approval) card.send(chatState()); }
+function pushChat() { if (chat.open && !approval && !alarm) card.send(chatState()); }
 
 function openChat() {
   if (manuallyHidden) toggleVisible();
@@ -317,6 +325,13 @@ async function askChat(question, prompt = null, withScreen = false) {
   if (!prompt) chat.note = "";
   Object.assign(chat, { question, answer: "", error: false, phase: "thinking", attach: false, looking: wantsScreen });
   pushChat();
+  // Timer and stopwatch commands are handled right here; only phrasing we can't read goes to Claude.
+  if (!prompt && !withScreen) {
+    const sw = T.parseStopwatch(question);
+    if (sw) { reply(stopwatchCommand(sw)); return; }
+    const cmd = T.parse(question);
+    if (cmd) { handleTimer(cmd, question); return; }
+  }
   if (wantsScreen) {
     const shot = await grabScreen();
     refreshCard({ focus: true });
@@ -406,6 +421,115 @@ ipcMain.on("card-close", (e) => { if (fromCard(e)) closeChat(); });
 ipcMain.on("card-height", (e, h) => { if (fromCard(e) && Number.isFinite(h)) card.setHeight(h); });
 ipcMain.on("card-copy", (e, text) => { if (fromCard(e) && typeof text === "string") clipboard.writeText(text); });
 ipcMain.on("card-attach", (e) => { if (fromCard(e) && chat.open) { chat.attach = !chat.attach; pushChat(); } });
+
+// MARK: Timers
+
+const lang = () => prefs.get("lang");
+const fmt = (key, vals) => L10n.ui(key).replace(/%([sdtne])/g, (_m, k) => vals[k] ?? "");
+
+function timerName(t) {
+  if (t.label) return t.label;
+  return t.duration ? fmt("timerNamed", { d: T.length(t.duration, lang()) }) : L10n.ui("alarmNamed");
+}
+
+/** An answer we wrote ourselves, shown like Claude's. */
+function reply(text) {
+  Object.assign(chat, { answer: text, error: false, phase: "answer" });
+  chat.history.push({ question: chat.question, answer: text });
+  pushChat();
+}
+
+function setTimer(fireAt, label, duration) {
+  timerStore.add(fireAt, label, duration);
+  const t = T.clock(fireAt, lang());
+  reply(label ? fmt("timerSetLabel", { s: label, t }) : fmt("timerSetPlain", { d: T.length(duration || 0, lang()), t }));
+}
+
+function handleTimer(cmd, question) {
+  if (cmd.type === "set") { setTimer(cmd.fireAt, cmd.label, cmd.duration); return; }
+  if (cmd.type === "cancel") {
+    const gone = cmd.all ? [...timerStore.timers] : timerStore.timers.slice(0, 1);
+    if (!gone.length) { reply(L10n.ui("noTimers")); return; }
+    gone.forEach((t) => timerStore.remove(t.id));
+    reply(gone.length === 1 ? fmt("cancelledOne", { s: timerName(gone[0]) }) : fmt("cancelledAll", { n: gone.length }));
+    return;
+  }
+  if (cmd.type === "list") {
+    const now = Date.now();
+    reply(timerStore.timers.length
+      ? [L10n.ui("running"), ...timerStore.timers.map((t) => `• ${timerName(t)}: ${T.left((t.fireAt - now) / 1000)} (${T.clock(t.fireAt, lang())})`)].join("\n")
+      : L10n.ui("noTimers"));
+    return;
+  }
+  // needsHelp: a TIMER line from Claude becomes a timer; anything else is just its answer.
+  chat.cancel = claude.ask(T.helpPrompt(question), {
+    onDone: (r) => {
+      chat.cancel = null;
+      if (!chat.open) return;
+      if (!r.ok) { Object.assign(chat, { answer: chatError(r.error), error: true, phase: "answer" }); pushChat(); return; }
+      const t = T.parseHelp(r.text);
+      if (t) setTimer(t.fireAt, t.label, null); else reply(r.text);
+    },
+  });
+}
+
+/** Runs a stopwatch command (chat or card buttons) and says what happened. */
+function stopwatchCommand(cmd) {
+  const now = Date.now(), sw = timerStore.stopwatch, e = () => T.elapsed(timerStore.stopwatchElapsed(now));
+  if (cmd === "start" && !sw) { timerStore.setStopwatch({ accumulated: 0, startedAt: now }); return L10n.ui("stopwatchStarted"); }
+  if ((cmd === "start" || cmd === "resume") && sw && !sw.startedAt) {
+    timerStore.setStopwatch({ ...sw, startedAt: now });
+    return fmt("swResume", { e: e() });
+  }
+  if (cmd === "pause" && sw?.startedAt) {
+    const text = fmt("swPause", { e: e() });
+    timerStore.setStopwatch({ accumulated: timerStore.stopwatchElapsed(now), startedAt: null });
+    return text;
+  }
+  if (cmd === "reset" && sw) { const text = fmt("swReset", { e: e() }); timerStore.setStopwatch(null); return text; }
+  return sw && cmd !== "reset" ? fmt("swShow", { e: e() }) : L10n.ui("stopwatchNotRunning");
+}
+
+const alarmState = () => ({
+  view: "alarm", lang: lang(), since: alarm.shownAt, sound: prefs.get("timerSound"),
+  title: "⏰ " + (alarm.label || L10n.ui("timeIsUp")),
+  subtitle: Date.now() - alarm.fireAt > 60_000 ? fmt("missedAt", { t: T.clock(alarm.fireAt, lang()) })
+    : alarm.duration ? timerName({ duration: alarm.duration }) : T.clock(alarm.fireAt, lang()),
+});
+
+function answerAlarm(snooze) {
+  if (!alarm || Date.now() - alarm.shownAt < 500) return;
+  if (snooze) timerStore.add(new Date(Date.now() + 300_000), alarm.label, 300);
+  alarm = null;
+  refreshCard();
+}
+
+/** Rings due timers one card at a time, keeps the badge under the crab and the card's list fresh. */
+function timerTick() {
+  const due = timerStore.popDue();
+  if (due.length) alarmQueue.push(...due);
+  if (!alarm && alarmQueue.length && !approval) {
+    alarm = { ...alarmQueue.shift(), shownAt: Date.now() };
+    if (manuallyHidden) toggleVisible();
+    sendToBuddy("command", "alarm");
+    refreshCard();
+  }
+
+  const now = Date.now(), next = timerStore.timers[0], sw = timerStore.stopwatch;
+  const badge = next ? { text: `⏱ ${T.compact((next.fireAt - now) / 1000, lang())}`, kind: "timer" }
+    : sw?.startedAt ? { text: T.elapsed(timerStore.stopwatchElapsed(now)), kind: "stopwatch" } : null;
+  const key = JSON.stringify(badge);
+  if (key !== lastBadge) { lastBadge = key; sendToBuddy("badge", badge); }
+
+  const timerKey = JSON.stringify([timerStore.timers.map((t) => t.id), sw]);
+  if (timerKey !== lastTimerKey) { lastTimerKey = timerKey; pushChat(); }
+}
+
+ipcMain.on("timer-cancel", (e, id) => { if (fromCard(e)) { timerStore.remove(id); pushChat(); } });
+ipcMain.on("stopwatch", (e, cmd) => {
+  if (fromCard(e) && ["pause", "resume", "reset"].includes(cmd)) { stopwatchCommand(cmd); pushChat(); }
+});
+ipcMain.on("alarm-answer", (e, snooze) => { if (fromCard(e)) answerAlarm(snooze === true); });
 
 // MARK: Approvals
 

@@ -15,6 +15,7 @@ const DEFAULTS = {
   chatHotkey: "Control+Alt+Space", // Electron accelerator; Alt+Space is the window menu on Windows
   approvalCard: true,
   screenHotkey: "Control+Alt+Shift+Space",
+  timerSound: true,
   anchor: null, // top-right corner of the buddy window, in screen DIPs
   firstRunDone: false,
 };

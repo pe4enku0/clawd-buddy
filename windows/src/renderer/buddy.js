@@ -30,6 +30,7 @@
 
   clawd.on("prefs", applyPrefs);
   clawd.on("hook", (info) => brain.handle(info));
+  clawd.on("badge", (b) => { view.badge = b; });
   clawd.on("cursor", (p) => { view.mouse = p; updateInteractive(); });
   clawd.on("drag-moved", () => { view.startDragMotion(); brain.dragStarted(); });
   clawd.on("command", (cmd) => {
@@ -37,6 +38,7 @@
     else if (cmd === "demo") brain.demo();
     else if (cmd === "remind") brain.remindToConnect();
     else if (cmd === "answered") brain.permissionAnswered();
+    else if (cmd === "alarm") { view.play("wave"); view.jump(3); }
   });
 
   canvas.addEventListener("mousedown", (e) => {

@@ -79,10 +79,96 @@
   $("deny").addEventListener("click", () => clawd.send("approval-answer", "deny"));
   $("ring").addEventListener("click", () => clawd.send("approval-answer", "terminal"));
 
+  // MARK: Timers and the stopwatch
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const left = (s) => { s = Math.max(0, Math.ceil(s)); return s >= 3600 ? `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}` : `${Math.floor(s / 60)}:${pad(s % 60)}`; };
+  const elapsed = (t) => {
+    const v = Math.max(0, t), s = Math.floor(v);
+    const base = s >= 3600 ? `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}` : `${Math.floor(s / 60)}:${pad(s % 60)}`;
+    return `${base}.${Math.floor(v * 10) % 10}`;
+  };
+  const swElapsed = (sw) => sw.accumulated + (sw.startedAt ? (Date.now() - sw.startedAt) / 1000 : 0);
+
+  function clockRow(icon, name, timeFn, buttons) {
+    const row = document.createElement("div");
+    row.className = "clock";
+    const i = document.createElement("span"), n = document.createElement("span"), t = document.createElement("span");
+    i.className = "icon"; i.textContent = icon;
+    n.className = "name"; n.textContent = name;
+    t.className = "time"; t.textContent = timeFn();
+    t.dataset.live = "1";
+    t._update = timeFn;
+    row.append(i, n, t);
+    for (const [label, title, fn] of buttons) {
+      const b = document.createElement("button");
+      b.textContent = label; b.title = title; b.type = "button";
+      b.addEventListener("click", fn);
+      row.append(b);
+    }
+    return row;
+  }
+
+  function renderClocks(show) {
+    const box = $("clocks");
+    box.replaceChildren();
+    const timers = (show && state.timers) || [], sw = show ? state.stopwatch : null;
+    for (const t of timers) {
+      box.append(clockRow("⏱", t.name, () => left((t.fireAt - Date.now()) / 1000),
+        [["✕", "", () => clawd.send("timer-cancel", t.id)]]));
+    }
+    if (sw) {
+      box.append(clockRow("◷", L10n.ui("stopwatch"), () => elapsed(swElapsed(sw)), [
+        [sw.startedAt ? "❚❚" : "▶", "", () => clawd.send("stopwatch", sw.startedAt ? "pause" : "resume")],
+        ["✕", "", () => clawd.send("stopwatch", "reset")],
+      ]));
+    }
+    box.hidden = !box.children.length;
+  }
+  setInterval(() => { for (const t of document.querySelectorAll("[data-live]")) t.textContent = t._update(); }, 100);
+
+  /** Three soft chimes, made right here (no sound files to ship). */
+  let chimedFor = 0;
+  function chime() {
+    try {
+      const ac = new AudioContext();
+      for (let i = 0; i < 3; i++) {
+        for (const [freq, delay] of [[880, 0], [1318.5, 0.16]]) {
+          const o = ac.createOscillator(), g = ac.createGain(), at = ac.currentTime + i * 1.4 + delay;
+          o.type = "sine"; o.frequency.value = freq;
+          g.gain.setValueAtTime(0, at);
+          g.gain.linearRampToValueAtTime(0.18, at + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, at + 0.9);
+          o.connect(g).connect(ac.destination);
+          o.start(at); o.stop(at + 1);
+        }
+      }
+      setTimeout(() => ac.close(), 5000);
+    } catch {}
+  }
+
+  function renderAlarm() {
+    $("title").textContent = state.title;
+    $("subtitle").textContent = state.subtitle;
+    answer.replaceChildren();
+    copy.classList.remove("ready");
+    for (const id of ["ask", "approval", "ring", "note"]) $(id).hidden = true;
+    renderClocks(false);
+    $("alarmButtons").hidden = false;
+    $("snooze").textContent = L10n.ui("snooze");
+    $("alarmDone").textContent = L10n.ui("done");
+    if (state.sound && chimedFor !== state.since) { chimedFor = state.since; chime(); }
+    requestAnimationFrame(() => clawd.send("card-height", card.getBoundingClientRect().height));
+  }
+  $("snooze").addEventListener("click", () => clawd.send("alarm-answer", true));
+  $("alarmDone").addEventListener("click", () => clawd.send("alarm-answer", false));
+
   function render() {
     L10n.lang = state.lang;
     card.classList.toggle("thinking", false);
-    if (state.view === "approval") { renderApproval(); return; }
+    $("alarmButtons").hidden = state.view !== "alarm";
+    if (state.view === "alarm") { renderAlarm(); return; }
+    if (state.view === "approval") { renderClocks(false); renderApproval(); return; }
     $("approval").hidden = true;
     $("ring").hidden = true;
     const chat = state.view === "chat";
@@ -100,6 +186,7 @@
     copy.textContent = L10n.ui("copy");
     copy.classList.toggle("ready", state.phase === "answer" && !!state.answer);
     $("ask").hidden = !chat;
+    renderClocks(chat);
     input.placeholder = L10n.ui(state.phase === "input" ? "chatPlaceholder" : "chatMore");
     if (chat && !thinking) input.focus();
     requestAnimationFrame(() => clawd.send("card-height", card.getBoundingClientRect().height));

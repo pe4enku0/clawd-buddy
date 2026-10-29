@@ -338,9 +338,28 @@
       this.drawShadow(p);
       this.drawParticles();
       this.drawCrab(p, k);
+      if (this.badge) this.drawBadge();
       if (this.bubbleAlpha > 0.01 && this.bubbleChars.length) {
         this.style === "pixel" ? this.drawPixelBubble() : this.drawClaudeBubble();
       }
+    }
+
+    /** A small pill under the crab: a timer counting down (clay) or the stopwatch (ink). */
+    drawBadge() {
+      const ctx = this.ctx, o = this.crabOrigin;
+      ctx.font = '700 10.5px "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace';
+      const text = this.badge.text, w = Math.ceil(ctx.measureText(text).width) + 14, h = 15;
+      const x = Math.round(o.x + 7 * UNIT - w / 2), y = 120;
+      ctx.fillStyle = "rgba(250, 249, 245, 0.92)";
+      ctx.strokeStyle = "rgba(43, 28, 23, 0.25)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 7);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = this.badge.kind === "timer" ? "#C4673F" : C.ink;
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, x + 7, y + h / 2 + 0.5);
     }
 
     drawShadow(p) {
